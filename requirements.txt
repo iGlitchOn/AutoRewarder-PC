@@ -1,0 +1,7 @@
+selenium==4.41.0
+pywebview==6.1
+requests==2.33.1
+pystray==0.19.5
+Pillow==10.4.0
+qrcode==8.2
+nlpaug==1.1.11

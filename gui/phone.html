@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Rewards Companion</title>
+  <link rel="stylesheet" href="normalize.css">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    html, body {
+      height: 100%;
+      min-height: 100%;
+      min-height: 100dvh;
+      overflow: auto;
+    }
+    body { user-select: auto; }
+    .app {
+      min-height: 100%;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      gap: 14px;
+    }
+    .pair-screen, .main-screen { flex: 0 0 auto; }
+    .pair-screen { display: flex; flex-direction: column; gap: 16px; }
+    .pair-screen[hidden], .main-screen[hidden] { display: none !important; }
+    .bottom-space { flex: 1 1 auto; min-height: 28px; }
+    .app-footer {
+      margin-top: 0;
+      padding: 8px 0 4px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+    .pair-row {
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .pair-row .code-input { flex: 1; min-width: 0; }
+    .qr-square {
+      width: 76px;
+      min-width: 76px;
+      height: 76px;
+      border: 0;
+      border-radius: 16px;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 20px var(--accent-glow);
+    }
+    .qr-square:active { transform: scale(0.97); }
+    .code-input {
+      width: 100%;
+      height: 76px;
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: 10px;
+      text-align: center;
+      padding: 12px 8px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    .pair-status {
+      margin: 0;
+      min-height: 2.2em;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .job-banner, .bing-banner {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 13px;
+    }
+    .job-banner[hidden], .bing-banner[hidden] { display: none !important; }
+    .bing-banner.warn { background: var(--warning-soft); color: var(--warning); }
+    .bing-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .bing-pill {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .run-actions { flex-wrap: wrap; }
+    .phone-mini { align-self: stretch; }
+    .avatar.phone-ico {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0;
+    }
+    .avatar.phone-ico svg { display: block; }
+    .stats-tiles {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .stat-tile {
+      background: var(--surface-2);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .stat-value { display: block; font-size: 20px; font-weight: 700; }
+    .stat-label { font-size: 11px; color: var(--text-muted); }
+    .count-group { display: flex; gap: 10px; }
+    .count-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .count-field input {
+      width: 72px;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 16px;
+    }
+    .conn-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <img src="iglitchoff.png" alt="">
+        </div>
+        <div class="brand-text">
+          <h1>Rewards Companion</h1>
+ <span class="brand-sub" id="app_version">Microsoft Rewards · Mobile companion · 4.3.3</span>
+        </div>
+      </div>
+      <button id="updates_btn" class="updates-btn" type="button" onclick="checkPhoneUpdate(true)" title="Buscar actualizaciones">Buscar updates</button>
+    </header>
+    <div class="bing-banner update-panel" id="update_banner" hidden>
+      <span id="update_text"></span>
+      <span class="update-actions">
+        <button id="update_download_btn" class="btn-secondary" type="button" onclick="downloadPhoneUpdate()">Descargar</button>
+        <button class="btn-secondary" type="button" onclick="cancelPhoneUpdate()">Cancelar</button>
+      </span>
+    </div>
+
+    <section class="card pair-screen" id="pair_screen">
+      <div class="card-label">Vincular al PC</div>
+      <p class="manual-hint" id="pair_hint">En el PC: Account → Vincular un celular. Escribe el código o pulsa el cuadrado para abrir la cámara y escanear el QR.</p>
+      <div class="pair-row">
+        <input id="pair_code" class="code-input" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="Código">
+        <button class="qr-square" type="button" onclick="scanQr()" title="Escanear QR" aria-label="Escanear QR">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <path d="M14 14h3v3h-3z"></path>
+            <path d="M20 14v6h-6"></path>
+          </svg>
+        </button>
+      </div>
+      <button class="primary-btn-lg" type="button" onclick="doPair()">Vincular</button>
+      <p class="form-hint pair-status" id="pair_status">Buscando el PC…</p>
+    </section>
+
+    <div class="main-screen" id="main_screen" hidden>
+      <div class="job-banner" id="job_banner" hidden></div>
+      <p class="form-hint" id="offline_hint" hidden></p>
+
+      <section class="card account-card">
+        <div class="card-label">Cuenta</div>
+        <div class="phone-row">
+          <span class="avatar" id="ms_avatar">MS</span>
+          <span class="account-info">
+            <span class="account-name" id="ms_name">Microsoft account</span>
+            <span class="account-meta" id="ms_meta">by Microsoft</span>
+          </span>
+        </div>
+        <div class="phone-row">
+          <span class="avatar phone-ico" id="ph_avatar" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="7" y="2" width="10" height="20" rx="2"></rect>
+              <line x1="11" y1="18" x2="13" y2="18"></line>
+            </svg>
+          </span>
+          <span class="account-info">
+            <span class="account-name" id="ph_name">Phone</span>
+            <span class="account-meta" id="ph_meta">Listo · by phone</span>
+          </span>
+          <span class="phone-dot on" id="ph_dot" title="This device"></span>
+        </div>
+        <div class="conn-bar" id="conn_bar">
+          <span class="dot" id="dot"></span>
+          <span id="status_text">Vinculado al PC</span>
+        </div>
+      </section>
+
+      <section class="card stats-card">
+        <div class="card-label">Puntos</div>
+        <div class="stats-tiles">
+          <div class="stat-tile">
+            <span class="stat-value" id="stat_total">—</span>
+            <span class="stat-label">Total</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-value" id="stat_today">—</span>
+            <span class="stat-label">Hoy</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card rewards-card">
+        <div class="card-header">
+          <div class="card-label">Rewards</div>
+          <span class="ghost-link" id="rewards_region">Colombia</span>
+        </div>
+        <div class="rewards-summary">
+          <div><strong id="rewards_level">Microsoft Rewards</strong></div>
+          <div class="rewards-progress">
+            <span id="progress_pc">PC: —</span>
+            <span id="progress_mobile">Mobile: —</span>
+            <span id="progress_daily">Daily: —</span>
+            <span id="progress_visual">Visual: —</span>
+            <span id="progress_checkin">Check-in: —</span>
+            <span id="progress_news">News: —</span>
+            <span id="progress_edge">Edge: —</span>
+            <span id="progress_reset">Reset: —</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card run-card" id="phone_tasks_card">
+        <div class="card-header">
+          <div class="card-label">En este celular</div>
+          <span class="bing-pill" id="bing_pill">Bing: …</span>
+        </div>
+        <p class="bing-banner" id="bing_banner" hidden></p>
+        <p class="manual-hint" id="bing_hint">Check-in y noticias cuentan en la app Bing, misma cuenta Microsoft.</p>
+        <div class="run-actions phone-actions">
+          <button class="primary-btn-lg" id="phone_checkin_btn" type="button" onclick="runPhone('checkin')" disabled>Check-in</button>
+          <button class="tasks-only-btn" id="phone_news_btn" type="button" onclick="runPhone('news')" disabled>Noticias</button>
+        </div>
+        <div class="run-actions" id="bing_setup_actions">
+          <button class="tasks-only-btn" type="button" id="bing_install_btn" onclick="installBingApp()">Instalar Bing</button>
+          <button class="tasks-only-btn" type="button" id="bing_login_btn" onclick="loginBingApp()">Iniciar sesión en Bing</button>
+        </div>
+      </section>
+
+      <section class="card run-card">
+        <div class="card-label">Correr en el PC</div>
+        <div class="count-group" style="margin-bottom:10px">
+          <label class="count-field">PC <input type="number" id="count_pc" min="0" max="130" value="15" onchange="saveQueries()"></label>
+          <label class="count-field">Móvil <input type="number" id="count_mobile" min="0" max="99" value="15" onchange="saveQueries()"></label>
+        </div>
+        <div class="run-actions pc-actions">
+          <button class="primary-btn-lg" id="pc_start_btn" type="button" onclick="runPc('start')" disabled>Iniciar en PC</button>
+          <button class="tasks-only-btn" id="pc_tasks_btn" type="button" onclick="runPc('tasks')" disabled>Solo tareas</button>
+          <button class="tasks-only-btn" id="pc_edge_btn" type="button" onclick="runPc('edge')" disabled>Edge 30 min</button>
+          <button class="stop-btn" id="pc_stop_btn" type="button" onclick="stopPc()" disabled>Detener</button>
+        </div>
+        <p class="run-block-reason" id="run_block_reason" hidden></p>
+      </section>
+
+      <section class="card activity-card">
+        <div class="card-label">Actividad</div>
+        <div id="log_area" class="activity-feed"></div>
+      </section>
+
+      <button class="phone-mini" type="button" onclick="unlinkPhone()">Desvincular este celular</button>
+    </div>
+
+    <div class="bottom-space" aria-hidden="true"></div>
+    <footer class="app-footer">
+      Rewards Companion by <img class="footer-logo" src="iglitchoff.png" alt=""> iGlitchOff
+    </footer>
+  </main>
+  <script src="i18n.js"></script>
+  <script src="phone.js"></script>
+</body>
+</html>
