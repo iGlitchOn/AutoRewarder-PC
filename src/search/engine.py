@@ -6,7 +6,11 @@ import random
 import time
 from urllib.parse import urlparse
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.common.by import By
 
 from ..utils import human_typing, wait_or_stop
@@ -545,10 +549,17 @@ class SearchEngine:
             )
             if not unchanged_tab:
                 lowered = current_url.lower()
-                if any(marker in lowered for marker in VISUAL_SEARCH_RESULT_URL_MARKERS):
+                if any(
+                    marker in lowered for marker in VISUAL_SEARCH_RESULT_URL_MARKERS
+                ):
                     return True
 
-            if not unchanged_tab and current_url and current_url != start_url and "bing.com" in lowered:
+            if (
+                not unchanged_tab
+                and current_url
+                and current_url != start_url
+                and "bing.com" in lowered
+            ):
                 # Homepage overlay sometimes navigates to /search without the
                 # classic sbi markers. A real navigation after upload counts.
                 if "/search" in lowered or "/images/" in lowered:
@@ -703,7 +714,9 @@ class SearchEngine:
                         human.click_element(visual_search_button)
                     except Exception:
                         try:
-                            driver.execute_script("arguments[0].click();", visual_search_button)
+                            driver.execute_script(
+                                "arguments[0].click();", visual_search_button
+                            )
                         except Exception:
                             pass
                     if wait_or_stop(random.uniform(0.8, 1.8), stop_event):
@@ -725,7 +738,9 @@ class SearchEngine:
 
                 if upload_input is None:
                     last_failure = "looking for the image upload field"
-                    self._log(f"[WARNING] No upload field on {url}. Trying another entry.")
+                    self._log(
+                        f"[WARNING] No upload field on {url}. Trying another entry."
+                    )
                     continue
 
                 known_tabs = self._tab_snapshot(driver)

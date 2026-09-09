@@ -256,7 +256,15 @@ class DailySet:
             snap = {"date": today}
         else:
             snap["date"] = today
-        for key in ("daily", "edge", "checkin", "search", "claim", "news", "resetHours"):
+        for key in (
+            "daily",
+            "edge",
+            "checkin",
+            "search",
+            "claim",
+            "news",
+            "resetHours",
+        ):
             if key not in progress:
                 continue
             value = progress.get(key)

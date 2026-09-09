@@ -11,11 +11,13 @@ def qr_data_url(payload: str) -> str:
     if not payload:
         return ""
     try:
-        import qrcode
-        import qrcode.constants
+        import qrcode  # type: ignore[import-untyped]
+        import qrcode.constants  # type: ignore[import-untyped]
     except Exception:
         return ""
-    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=3)
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=3
+    )
     qr.add_data(payload)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")

@@ -13,7 +13,7 @@ import shutil
 import sys
 import urllib.request
 
-from .config import APP_DIR, BASE_DIR, REPO
+from .config import APP_DIR, BASE_DIR
 
 PHONE_VERSION_CODE = 19
 PHONE_VERSION_NAME = "4.3.5"
@@ -115,7 +115,10 @@ def fetch_github():
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
     repo = os.environ.get("AR_MOBILE_GITHUB_REPO") or MOBILE_REPO
     url = f"https://api.github.com/repos/{repo}/releases/latest"
-    req = urllib.request.Request(url, headers={"User-Agent": "AutoRewarder", "Accept": "application/vnd.github+json"})
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "AutoRewarder", "Accept": "application/vnd.github+json"},
+    )
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
@@ -139,7 +142,10 @@ def fetch_github():
     try:
         req2 = urllib.request.Request(
             apk["browser_download_url"],
-            headers={"User-Agent": "AutoRewarder", "Accept": "application/octet-stream"},
+            headers={
+                "User-Agent": "AutoRewarder",
+                "Accept": "application/octet-stream",
+            },
         )
         if token:
             req2.add_header("Authorization", "Bearer " + token)

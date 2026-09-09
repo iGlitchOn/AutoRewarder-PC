@@ -6,7 +6,6 @@ iPhone with the BingSapphire user-agent (the same client the Bing app uses).
 """
 
 import random
-import time
 
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
@@ -14,11 +13,12 @@ from selenium.webdriver.common.by import By
 from .rewards_api import fetch_userinfo, parse_userinfo
 from ..utils import wait_or_stop
 
-
 # Bing *phone* client (Colombia). News and check-in live here, not on the PC dashboard.
 MARKET = "es-CO"
 APP_HOME = f"https://www.bing.com/?form=APMCS1&setmkt={MARKET}&setlang=es"
-NEWS_URL = f"https://www.bing.com/news/search?q=noticias+colombia&form=APMCS1&setmkt={MARKET}"
+NEWS_URL = (
+    f"https://www.bing.com/news/search?q=noticias+colombia&form=APMCS1&setmkt={MARKET}"
+)
 NEWS_HOME = f"https://www.bing.com/news?form=APMCS1&setmkt={MARKET}"
 MSN_HOME = f"https://www.msn.com/es-co?ocid=bingnews&setmkt={MARKET}"
 READ_TO_EARN = f"https://rewards.bing.com/earn?setmkt={MARKET}"
@@ -216,16 +216,14 @@ class BingAppTasks:
             self._safe_get(driver, "https://rewards.bing.com/dashboard")
             if self._wait(1.5, stop_event):
                 return False
-            driver.execute_script(
-                """
+            driver.execute_script("""
                 var nodes=document.querySelectorAll('button,[role=button],a,[data-react-aria-pressable]');
                 for (var i=0;i<nodes.length;i++){
                   var t=(nodes[i].innerText||'');
                   if (/Check-in:\\s*0\\s*\\/\\s*1/i.test(t)) { nodes[i].click(); return true; }
                 }
                 return false;
-                """
-            )
+                """)
             self._wait(3.0, stop_event)
         except Exception:
             pass
@@ -266,7 +264,9 @@ class BingAppTasks:
         h = (href or "").lower()
         if not h.startswith("http"):
             return False
-        if any(bad in h for bad in ("javascript:", "mailto:", "login", "account.microsoft")):
+        if any(
+            bad in h for bad in ("javascript:", "mailto:", "login", "account.microsoft")
+        ):
             return False
         # Search listings do not credit read-to-earn.
         if "bing.com/search" in h:

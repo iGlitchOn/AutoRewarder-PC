@@ -514,7 +514,9 @@ class NewDashboardDailySet:
                 driver.execute_script("window.stop();")
             except Exception:
                 pass
-            self._log("[WARNING] Page load timed out — continuing with whatever rendered.")
+            self._log(
+                "[WARNING] Page load timed out — continuing with whatever rendered."
+            )
             return True
         except Exception as e:
             self._log(f"[WARNING] Navigation failed: {str(e).splitlines()[0][:160]}")
@@ -958,7 +960,9 @@ class NewDashboardDailySet:
                 )
                 daily_ok = True
             else:
-                self._log("[1/8] Daily Set — scanning cards (will not hang on reload)...")
+                self._log(
+                    "[1/8] Daily Set — scanning cards (will not hang on reload)..."
+                )
                 daily_ok = self._run_daily_set(
                     driver, human, stop_event=stop_event, already_on_dashboard=True
                 )
@@ -1055,7 +1059,12 @@ class NewDashboardDailySet:
             if q.get("complete"):
                 continue
             done, total = q.get("done"), q.get("total")
-            if isinstance(done, int) and isinstance(total, int) and total > 0 and done >= total:
+            if (
+                isinstance(done, int)
+                and isinstance(total, int)
+                and total > 0
+                and done >= total
+            ):
                 continue
             url = q.get("url") or ""
             if "/earn/quest/" not in url and "punchcard" not in url.lower():
@@ -1084,7 +1093,12 @@ class NewDashboardDailySet:
             if skip_offer(title, url):
                 continue
             done, total = q.get("done"), q.get("total")
-            if isinstance(done, int) and isinstance(total, int) and total > 0 and done >= total:
+            if (
+                isinstance(done, int)
+                and isinstance(total, int)
+                and total > 0
+                and done >= total
+            ):
                 continue
             if "/earn/quest/" not in url:
                 continue
@@ -1117,7 +1131,8 @@ class NewDashboardDailySet:
         if isinstance(progress.get("resetHours"), int):
             parts.append(f"daily set resets in {progress['resetHours']}h")
         self._log(
-            "Live dashboard: " + (" | ".join(parts) if parts else "counters not readable")
+            "Live dashboard: "
+            + (" | ".join(parts) if parts else "counters not readable")
         )
         search = progress.get("search")
         if isinstance(search, (list, tuple)) and len(search) == 2:
@@ -1345,9 +1360,7 @@ class NewDashboardDailySet:
             if isinstance(left, int) and left == 0:
                 self._log("Claim verified on retry: 0 pending.")
             else:
-                self._log(
-                    f"[WARNING] Claim not confirmed (still {left})."
-                )
+                self._log(f"[WARNING] Claim not confirmed (still {left}).")
         else:
             self._log("Clicked claim — pending amount could not be re-read.")
 
@@ -1358,8 +1371,7 @@ class NewDashboardDailySet:
             if not self._safe_get(driver, FLYOUT_URL):
                 return items
             time.sleep(1.2)
-            raw = driver.execute_script(
-                """
+            raw = driver.execute_script("""
                 var out = [];
                 var seen = {};
                 document.querySelectorAll('a[href*="bing.com"]').forEach(function(a) {
@@ -1376,8 +1388,7 @@ class NewDashboardDailySet:
                   out.push({destination: href, title: title.slice(0, 80), points: pts});
                 });
                 return out;
-                """
-            ) or []
+                """) or []
         except Exception as e:
             self._log(f"[WARNING] Flyout activities unread: {e}")
             return items
@@ -1559,9 +1570,7 @@ class NewDashboardDailySet:
                 continue
             pending.append(q)
 
-        seen_urls = {
-            (q.get("url") or "").split("?")[0].rstrip("/") for q in pending
-        }
+        seen_urls = {(q.get("url") or "").split("?")[0].rstrip("/") for q in pending}
         api = parse_userinfo(fetch_userinfo(driver))
         api_cards = {
             (c.get("url") or "").split("?")[0].rstrip("/"): c
@@ -1732,9 +1741,11 @@ class NewDashboardDailySet:
                     self._log(f"Daily Set: '{title}' already complete — skip.")
                 else:
                     dest = (it.get("destination") or "")[:80]
-                    kind = "quiz/poll" if re.search(
-                        r"quiz|poll|dsetqu|wqoskey", dest, re.I
-                    ) else "click"
+                    kind = (
+                        "quiz/poll"
+                        if re.search(r"quiz|poll|dsetqu|wqoskey", dest, re.I)
+                        else "click"
+                    )
                     self._log(f"Daily Set: '{title}' incomplete — will {kind}.")
             total = len(todays)
             already = total - len(incomplete)

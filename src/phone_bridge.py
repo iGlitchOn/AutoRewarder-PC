@@ -390,7 +390,9 @@ class PhoneBridge:
                         return self._json(404, {"ok": False, "error": "no_apk"})
                     size = os.path.getsize(path)
                     self.send_response(200)
-                    self.send_header("Content-Type", "application/vnd.android.package-archive")
+                    self.send_header(
+                        "Content-Type", "application/vnd.android.package-archive"
+                    )
                     self.send_header(
                         "Content-Disposition", "attachment; filename=AutoRewarder.apk"
                     )
@@ -414,7 +416,9 @@ class PhoneBridge:
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+                self.send_header(
+                    "Access-Control-Allow-Headers", "Authorization, Content-Type"
+                )
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
@@ -441,7 +445,9 @@ class PhoneBridge:
             def do_OPTIONS(self):
                 self.send_response(204)
                 self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+                self.send_header(
+                    "Access-Control-Allow-Headers", "Authorization, Content-Type"
+                )
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                 self.end_headers()
 
@@ -492,7 +498,9 @@ class PhoneBridge:
                             "phone": phone.get("name") or "Phone",
                             "ready": bool(acc.get("first_setup_done")),
                             "version": CURRENT_VERSION,
-                            "ui_locale": getattr(bridge.api, "ui_locale", lambda: "en")(),
+                            "ui_locale": getattr(
+                                bridge.api, "ui_locale", lambda: "en"
+                            )(),
                         },
                     )
                 if path == "/jobs":
@@ -619,7 +627,10 @@ class PhoneBridge:
                     model = str(body.get("model") or "")[:40]
                     phone = None
                     for existing in bridge.api.account_meta.get_phones():
-                        if existing.get("name") == name or existing.get("model") == model:
+                        if (
+                            existing.get("name") == name
+                            or existing.get("model") == model
+                        ):
                             phone = existing
                             break
                     if phone is None:
@@ -686,7 +697,11 @@ class PhoneBridge:
                         job["event"].set()
                     threading.Thread(
                         target=bridge._notify_ui,
-                        args=(job.get("kind") if job else "job", bool(body.get("ok")), str(body.get("detail") or "")),
+                        args=(
+                            job.get("kind") if job else "job",
+                            bool(body.get("ok")),
+                            str(body.get("detail") or ""),
+                        ),
                         daemon=True,
                     ).start()
                     return self._json(200, {"ok": True})
@@ -704,7 +719,9 @@ class PhoneBridge:
                         if body.get("pc") is not None:
                             bridge.api.global_settings.set_queries_pc(body.get("pc"))
                         if body.get("mobile") is not None:
-                            bridge.api.global_settings.set_queries_mobile(body.get("mobile"))
+                            bridge.api.global_settings.set_queries_mobile(
+                                body.get("mobile")
+                            )
                     except Exception as e:
                         return self._json(400, {"ok": False, "error": str(e)})
                     threading.Thread(

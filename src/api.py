@@ -708,9 +708,7 @@ class AutoRewarderAPI:
                 self.driver_manager.close_running_edge()
                 time.sleep(1.0)
         except Exception as e:
-            self.log(
-                f"[ERROR] Error loading WebDriver ({CURRENT_VERSION}): {e}"
-            )
+            self.log(f"[ERROR] Error loading WebDriver ({CURRENT_VERSION}): {e}")
             try:
                 self.driver_manager.close_running_edge()
             except Exception:
@@ -967,7 +965,9 @@ class AutoRewarderAPI:
                 pass
             try:
                 service = getattr(driver, "service", None)
-                proc = getattr(service, "process", None) if service is not None else None
+                proc = (
+                    getattr(service, "process", None) if service is not None else None
+                )
                 if proc is not None:
                     proc.kill()
             except Exception:
@@ -1902,9 +1902,7 @@ class AutoRewarderAPI:
             settings = self.global_settings.settings_for_update()
             settings["launch_on_login"] = enabled
             self.global_settings.save_settings(settings)
-            self.log(
-                "Open on sign-in: " + ("enabled." if enabled else "disabled.")
-            )
+            self.log("Open on sign-in: " + ("enabled." if enabled else "disabled."))
             return True
         except Exception as e:
             self.log(f"[WARNING] Failed to update open-on-sign-in: {e}")
@@ -2361,21 +2359,17 @@ class AutoRewarderAPI:
         is_estimate = balance is None
         estimate_total = data["lifetime"]["points_estimate"]
         total_points = balance if balance is not None else estimate_total
-        session_delta = last.get("points_delta")
 
         ended_at = last.get("ended_at")
         today = datetime.now().date().isoformat()
         bucket = (data.get("daily") or {}).get(today) or {}
         today_est = (
-            (int(bucket.get("pc") or 0) + int(bucket.get("mobile") or 0))
-            * POINTS_PER_SEARCH
-            + (
-                int(bucket.get("cards") or 0)
-                + int(bucket.get("earn") or 0)
-                + int(bucket.get("quests") or 0)
-            )
-            * POINTS_PER_CARD
-        )
+            int(bucket.get("pc") or 0) + int(bucket.get("mobile") or 0)
+        ) * POINTS_PER_SEARCH + (
+            int(bucket.get("cards") or 0)
+            + int(bucket.get("earn") or 0)
+            + int(bucket.get("quests") or 0)
+        ) * POINTS_PER_CARD
         start_bal = bucket.get("start_balance")
         end_bal = balance if isinstance(balance, int) else bucket.get("end_balance")
         if isinstance(start_bal, int) and isinstance(end_bal, int):
@@ -2454,9 +2448,16 @@ class AutoRewarderAPI:
             return "Colombia"
         code = loc.split("-")[-1].upper()
         names = {
-            "US": "United States", "CO": "Colombia", "MX": "Mexico",
-            "ES": "Spain", "GB": "United Kingdom", "CA": "Canada",
-            "BR": "Brazil", "AR": "Argentina", "CL": "Chile", "PE": "Peru",
+            "US": "United States",
+            "CO": "Colombia",
+            "MX": "Mexico",
+            "ES": "Spain",
+            "GB": "United Kingdom",
+            "CA": "Canada",
+            "BR": "Brazil",
+            "AR": "Argentina",
+            "CL": "Chile",
+            "PE": "Peru",
         }
         return names.get(code, code if len(code) == 2 else (stored or "Unknown"))
 
@@ -2465,20 +2466,18 @@ class AutoRewarderAPI:
         out = {}
         try:
             driver.set_script_timeout(15)
-            data = driver.execute_async_script(
-                """
+            data = driver.execute_async_script("""
                 const done = arguments[0];
                 fetch('https://rewards.bing.com/api/getuserinfo?type=1', {
                   credentials: 'include',
                   headers: {Accept: 'application/json'}
                 }).then(r => r.json()).then(done).catch(() => done(null));
-                """
-            )
+                """)
         except Exception:
             return out
-        counters = (
-            ((data or {}).get("dashboard") or {}).get("userStatus") or {}
-        ).get("counters") or {}
+        counters = (((data or {}).get("dashboard") or {}).get("userStatus") or {}).get(
+            "counters"
+        ) or {}
 
         def _frac(value, as_searches=False):
             if isinstance(value, list) and value:
@@ -2527,10 +2526,19 @@ class AutoRewarderAPI:
         if self.account_meta is None:
             return
         try:
-            raw = driver.execute_script(
-                "return {locale:navigator.language||'', timezone:(Intl.DateTimeFormat().resolvedOptions().timeZone||''), text:(document.body.innerText||'').slice(0,30000)};"
-            ) or {}
-            locale = str(raw.get("locale") or self.global_settings.get_settings().get("detected_locale") or "")
+            raw = (
+                driver.execute_script(
+                    "return {locale:navigator.language||'', "
+                    "timezone:(Intl.DateTimeFormat().resolvedOptions().timeZone||''), "
+                    "text:(document.body.innerText||'').slice(0,30000)};"
+                )
+                or {}
+            )
+            locale = str(
+                raw.get("locale")
+                or self.global_settings.get_settings().get("detected_locale")
+                or ""
+            )
             text = str(raw.get("text") or "")
             match = re.search(r"\b(?:level|nivel)\s*(\d+)\b", text, re.IGNORECASE)
             member_match = re.search(
@@ -2549,34 +2557,39 @@ class AutoRewarderAPI:
             profile = self.account_meta.get_rewards_profile()
             counters = self._scrape_dashboard_counters(driver)
             tz = str(raw.get("timezone") or profile.get("timezone") or "")
-            profile.update({
-                "locale": locale,
-                "country": self._country_from_locale(
-                    locale, tz, profile.get("country")
-                ),
-                "timezone": tz or "America/Bogota",
-                "level": int(match.group(1)) if match else profile.get("level"),
-                "membership": (
-                    f"{member_match.group(1).title()} Member"
-                    if member_match else profile.get("membership")
-                ),
-                "checkin": (
-                    f"{checkin_match.group(1)}/{checkin_match.group(2)}"
-                    if checkin_match else None
-                ),
-                "news": (
-                    counters.get("news")
-                    or (
-                        f"{news_match.group(1)}/{news_match.group(2)}"
-                        if news_match
-                        else profile.get("news")
-                    )
-                ),
-                "pc_search": counters.get("pc") or profile.get("pc_search"),
-                "mobile_search": counters.get("mobile") or profile.get("mobile_search"),
-                "limited_access": "limited access" in text.lower(),
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-            })
+            profile.update(
+                {
+                    "locale": locale,
+                    "country": self._country_from_locale(
+                        locale, tz, profile.get("country")
+                    ),
+                    "timezone": tz or "America/Bogota",
+                    "level": int(match.group(1)) if match else profile.get("level"),
+                    "membership": (
+                        f"{member_match.group(1).title()} Member"
+                        if member_match
+                        else profile.get("membership")
+                    ),
+                    "checkin": (
+                        f"{checkin_match.group(1)}/{checkin_match.group(2)}"
+                        if checkin_match
+                        else None
+                    ),
+                    "news": (
+                        counters.get("news")
+                        or (
+                            f"{news_match.group(1)}/{news_match.group(2)}"
+                            if news_match
+                            else profile.get("news")
+                        )
+                    ),
+                    "pc_search": counters.get("pc") or profile.get("pc_search"),
+                    "mobile_search": counters.get("mobile")
+                    or profile.get("mobile_search"),
+                    "limited_access": "limited access" in text.lower(),
+                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                }
+            )
             self.account_meta.set_rewards_profile(profile)
         except Exception:
             # The profile is convenience metadata; never interrupt a balance refresh.
@@ -2642,10 +2655,14 @@ class AutoRewarderAPI:
             daily_label = "done"
         elif daily_state == "partial":
             bits = tasks.get("pending_bits") or []
-            daily_label = ", ".join(bits) if bits else (
-                f"{tasks.get('daily_remaining')} remaining"
-                if tasks.get("daily_remaining")
-                else "partial"
+            daily_label = (
+                ", ".join(bits)
+                if bits
+                else (
+                    f"{tasks.get('daily_remaining')} remaining"
+                    if tasks.get("daily_remaining")
+                    else "partial"
+                )
             )
         else:
             daily_label = "pending — will verify live"
@@ -2674,7 +2691,11 @@ class AutoRewarderAPI:
                 "pc": self._progress_from_frac(
                     None,
                     int(bucket.get("pc", 0) or 0)
-                    + (int(self._session_counts.get("pc") or 0) if self._run_lock.locked() else 0),
+                    + (
+                        int(self._session_counts.get("pc") or 0)
+                        if self._run_lock.locked()
+                        else 0
+                    ),
                     pc_target,
                 ),
                 "mobile": self._progress_from_frac(
@@ -2697,7 +2718,11 @@ class AutoRewarderAPI:
                 ),
                 "news": self._frac_label(
                     live.get("news"),
-                    profile.get("news") if tasks.get("news") != "done" else tasks.get("news"),
+                    (
+                        profile.get("news")
+                        if tasks.get("news") != "done"
+                        else tasks.get("news")
+                    ),
                     tasks.get("news") or "pending",
                 ),
                 "edge": self._frac_label(live.get("edge"), edge_label, "pending"),
@@ -2724,9 +2749,7 @@ class AutoRewarderAPI:
     def ignore_manual_task(self, task_id, ignored=True):
         if self.account_meta is None:
             return self.get_manual_tasks()
-        self.account_meta.set_manual_pref(
-            task_id, "ignore" if ignored else "unignore"
-        )
+        self.account_meta.set_manual_pref(task_id, "ignore" if ignored else "unignore")
         return self.get_manual_tasks()
 
     def remove_manual_task(self, task_id):
@@ -3234,7 +3257,9 @@ class AutoRewarderAPI:
                     self._run_advanced_schedule(pc_count, mobile_count, duration, qph)
                 else:
                     if pc_count > 0 and not self._stop_event.is_set():
-                        self._run_phase(mobile=False, count=pc_count, do_daily_set=False)
+                        self._run_phase(
+                            mobile=False, count=pc_count, do_daily_set=False
+                        )
 
                     if mobile_count > 0 and not self._stop_event.is_set():
                         self._run_phase(
@@ -3387,10 +3412,9 @@ class AutoRewarderAPI:
         import copy
 
         data = copy.deepcopy(data)
-        estimate = (
-            (pc + mobile) * POINTS_PER_SEARCH
-            + (cards + earn + quests) * POINTS_PER_CARD
-        )
+        estimate = (pc + mobile) * POINTS_PER_SEARCH + (
+            cards + earn + quests
+        ) * POINTS_PER_CARD
         life = data["lifetime"]
         life["pc_searches"] = int(life.get("pc_searches") or 0) + pc
         life["mobile_searches"] = int(life.get("mobile_searches") or 0) + mobile
@@ -3487,9 +3511,7 @@ class AutoRewarderAPI:
         daily_done = not self.daily_set.should_perform_daily_set()
         run_daily_set = True
 
-        self.log(
-            f"=== Tasks — verify each Rewards item ({CURRENT_VERSION}) ==="
-        )
+        self.log(f"=== Tasks — verify each Rewards item ({CURRENT_VERSION}) ===")
         waited = 0.0
         while self.is_driver_loading and waited < 60 and not self._stop_event.is_set():
             time.sleep(0.5)
@@ -3513,7 +3535,7 @@ class AutoRewarderAPI:
             pass
         try:
             self._driver = self.driver_manager.setup_driver(mobile=False)
-        except Exception as e:
+        except Exception:
             if self._stop_event.is_set():
                 self.log("Stopped.")
                 return
@@ -3606,7 +3628,9 @@ class AutoRewarderAPI:
             if phone_checkin.get("ok"):
                 self.log("[7/8] Mobile check-in — completed on the linked phone.")
                 self.daily_set.mark_checkin_as_completed()
-                self._report("Check-in", True, phone_checkin.get("detail") or "by phone")
+                self._report(
+                    "Check-in", True, phone_checkin.get("detail") or "by phone"
+                )
                 try:
                     self.daily_set.save_live_snapshot({"checkin": [1, 1]})
                 except Exception:
@@ -3647,7 +3671,7 @@ class AutoRewarderAPI:
 
         try:
             self._driver = self.driver_manager.setup_driver(mobile=True, bing_app=True)
-        except Exception as e:
+        except Exception:
             if self._stop_event.is_set():
                 self.log("Stopped.")
                 return
@@ -3668,9 +3692,7 @@ class AutoRewarderAPI:
                 and int(checkin[1]) > 0
             )
             if isinstance(checkin, (list, tuple)) and len(checkin) == 2:
-                self.log(
-                    f"[7/8] Mobile check-in — live {checkin[0]}/{checkin[1]}."
-                )
+                self.log(f"[7/8] Mobile check-in — live {checkin[0]}/{checkin[1]}.")
             else:
                 self.log("[7/8] Mobile check-in — counter not readable, will try.")
 
@@ -3710,7 +3732,11 @@ class AutoRewarderAPI:
                     )
                 try:
                     self.daily_set.save_live_snapshot(
-                        {"checkin": after if isinstance(after, (list, tuple)) else [0, 1]}
+                        {
+                            "checkin": (
+                                after if isinstance(after, (list, tuple)) else [0, 1]
+                            )
+                        }
                     )
                 except Exception:
                     pass
@@ -3776,9 +3802,7 @@ class AutoRewarderAPI:
                 self._notify_progress()
 
             if not self._stop_event.is_set() and not checkin_done:
-                ok = tasks.bing_app_streak(
-                    self._driver, stop_event=self._stop_event
-                )
+                ok = tasks.bing_app_streak(self._driver, stop_event=self._stop_event)
                 if ok:
                     self.log("Bing app streak session finished.")
                     self._report("Bing app streak", True, "phone session finished")
@@ -3937,9 +3961,7 @@ class AutoRewarderAPI:
             self._report("Visual Search", "skip", "already complete today")
             return False
         if not listed and not force:
-            self.log(
-                "[5/8] Visual Search — not listed on today's dashboard, skipping."
-            )
+            self.log("[5/8] Visual Search — not listed on today's dashboard, skipping.")
             self._report("Visual Search", "skip", "not listed today")
             return False
 
@@ -4076,7 +4098,7 @@ class AutoRewarderAPI:
             self._driver = self.driver_manager.setup_driver(
                 mobile=mobile, bing_app=bool(mobile)
             )
-        except Exception as e:
+        except Exception:
             if self._stop_event.is_set():
                 self.log("Stopped.")
                 return

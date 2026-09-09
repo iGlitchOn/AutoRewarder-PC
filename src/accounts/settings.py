@@ -191,7 +191,9 @@ class GlobalSettingsManager:
         """Return settings only when the on-disk file was read authoritatively."""
         settings = self.get_settings()
         if not self._read_ok:
-            raise OSError(f"{self.path} is locked; refusing to overwrite stale settings")
+            raise OSError(
+                f"{self.path} is locked; refusing to overwrite stale settings"
+            )
         return settings
 
     def set_hide_browser(self, is_hide):

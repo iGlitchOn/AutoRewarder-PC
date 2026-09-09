@@ -5,7 +5,6 @@ import time
 
 from ..utils import wait_or_stop
 
-
 # Classic Rewards quiz / poll / this-or-that plus the newer Daily Set
 # conversation quizzes (form=dsetqu / WQOskey).
 _START_SELECTORS = (
@@ -46,7 +45,9 @@ _NEXT_SELECTORS = (
 )
 
 
-def complete_if_interactive(driver, log=None, stop_event=None, human=None, max_rounds=12):
+def complete_if_interactive(
+    driver, log=None, stop_event=None, human=None, max_rounds=12
+):
     """
     If the current page is a poll, quiz or This-or-That, click through it.
 
@@ -224,9 +225,7 @@ def _click_conversation_option(driver, human):
 
 def _try_click(driver, el, human=None):
     try:
-        driver.execute_script(
-            "arguments[0].scrollIntoView({block:'center'});", el
-        )
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
         time.sleep(random.uniform(0.2, 0.5))
         if human is not None:
             try:

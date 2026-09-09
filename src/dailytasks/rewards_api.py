@@ -5,7 +5,7 @@ source of truth for whether a task is still open.
 """
 
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 SKIP_TITLE_RE = re.compile(
     r"game pass|xbox|donat|canjear|redeem|default search|bing as default|"
@@ -34,8 +34,7 @@ def fetch_userinfo(driver):
         return None
     try:
         driver.set_script_timeout(18)
-        return driver.execute_async_script(
-            """
+        return driver.execute_async_script("""
             const done = arguments[0];
             fetch('/api/getuserinfo?type=1', {
               credentials: 'include',
@@ -44,8 +43,7 @@ def fetch_userinfo(driver):
               .then(r => r.json())
               .then(done)
               .catch(() => done(null));
-            """
-        )
+            """)
     except Exception:
         return None
 

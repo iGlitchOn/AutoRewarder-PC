@@ -472,9 +472,13 @@ class StatsManager:
         bucket["earn"] = bucket.get("earn", 0) + earn
         bucket["quests"] = bucket.get("quests", 0) + quests
         bucket["runs"] += 1
-        bucket["points_estimate"] = int(bucket.get("points_estimate") or 0) + session_estimate
+        bucket["points_estimate"] = (
+            int(bucket.get("points_estimate") or 0) + session_estimate
+        )
         if points_delta is not None:
-            bucket["points_delta"] = int(bucket.get("points_delta") or 0) + int(points_delta)
+            bucket["points_delta"] = int(bucket.get("points_delta") or 0) + int(
+                points_delta
+            )
         stats["daily"] = self._trim_daily(stats["daily"])
 
         self.save_stats(stats)

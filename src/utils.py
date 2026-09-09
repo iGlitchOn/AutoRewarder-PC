@@ -5,7 +5,7 @@ import time
 import random
 import requests
 
-from .config import CURRENT_VERSION, GITHUB_VERSION, REPO
+from .config import GITHUB_VERSION, REPO
 
 
 def _github_is_newer(latest, current):
@@ -15,6 +15,7 @@ def _github_is_newer(latest, current):
     Local builds use 4.2.<time> (e.g. 4.2.9:58PM) while GitHub tags are v4.2.
     Compare only major.minor so a custom 4.2.x build does not nag about v4.2.
     """
+
     def _pair(value):
         text = str(value or "").strip().lstrip("vV")
         match = re.match(r"(\d+)\.(\d+)", text)
@@ -27,6 +28,7 @@ def _github_is_newer(latest, current):
 
 def release_is_newer(latest, current):
     """Compare major, minor, and patch numbers from release tags."""
+
     def _version(value):
         numbers = re.findall(r"\d+", str(value or ""))
         return tuple(int(item) for item in numbers[:3]) + (0,) * (3 - len(numbers[:3]))
@@ -39,12 +41,17 @@ def github_latest_release(repo, logger=None):
     try:
         response = requests.get(
             f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={"User-Agent": "AutoRewarder-App", "Accept": "application/vnd.github+json"},
+            headers={
+                "User-Agent": "AutoRewarder-App",
+                "Accept": "application/vnd.github+json",
+            },
             timeout=8,
         )
         if response.status_code != 200:
             if logger:
-                logger(f"[WARNING] GitHub update check failed for {repo}: {response.status_code}")
+                logger(
+                    f"[WARNING] GitHub update check failed for {repo}: {response.status_code}"
+                )
             return None
         data = response.json()
         tag = str(data.get("tag_name") or "").strip()
@@ -52,7 +59,13 @@ def github_latest_release(repo, logger=None):
             return None
         assets = data.get("assets") or []
         asset = next(
-            (item for item in assets if str(item.get("name") or "").lower().endswith((".exe", ".msi", ".zip", ".apk"))),
+            (
+                item
+                for item in assets
+                if str(item.get("name") or "")
+                .lower()
+                .endswith((".exe", ".msi", ".zip", ".apk"))
+            ),
             None,
         )
         return {
@@ -60,7 +73,8 @@ def github_latest_release(repo, logger=None):
             "tag": tag,
             "name": data.get("name") or tag,
             "url": data.get("html_url") or f"https://github.com/{repo}/releases/latest",
-            "download_url": (asset or {}).get("browser_download_url") or data.get("html_url"),
+            "download_url": (asset or {}).get("browser_download_url")
+            or data.get("html_url"),
             "asset_name": (asset or {}).get("name") or "",
         }
     except Exception as exc:

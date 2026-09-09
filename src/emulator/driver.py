@@ -67,9 +67,7 @@ class DriverManager:
                 return exact
             prefix = ".".join(ver.split(".")[:3])
             try:
-                names = sorted(
-                    n for n in os.listdir(cache) if n.startswith(prefix)
-                )
+                names = sorted(n for n in os.listdir(cache) if n.startswith(prefix))
             except OSError:
                 names = []
             for name in reversed(names):
@@ -128,9 +126,7 @@ class DriverManager:
     def _attach_fallback(self, hide=False):
         """Launch a real Edge with a debug port and attach Selenium to it."""
         port = self.debug_port()
-        _proc, port = self.start_native_edge(
-            "about:blank", port=port, hide=hide
-        )
+        _proc, port = self.start_native_edge("about:blank", port=port, hide=hide)
         if not self._wait_debug_port(port, timeout=12):
             raise RuntimeError(
                 f"Edge opened but debug port {port} never accepted connections"
@@ -219,9 +215,7 @@ class DriverManager:
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
             use_mobile = bool(mobile or bing_app)
-            mobile_ua = (
-                self.BING_APP_USER_AGENT if bing_app else self.MOBILE_USER_AGENT
-            )
+            mobile_ua = self.BING_APP_USER_AGENT if bing_app else self.MOBILE_USER_AGENT
             if use_mobile:
                 options.add_argument(f"--user-agent={mobile_ua}")
                 window_size = self.MOBILE_WINDOW_SIZE
@@ -380,7 +374,9 @@ class DriverManager:
         if all_accounts:
             needles.append("EdgeProfile")
         lines = [
-            "$needles = @(" + ", ".join("'" + n.replace("'", "''") + "'" for n in needles) + ")",
+            "$needles = @("
+            + ", ".join("'" + n.replace("'", "''") + "'" for n in needles)
+            + ")",
             "Get-Process msedgedriver -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
             "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" -ErrorAction SilentlyContinue |",
             "  Where-Object {",
@@ -431,7 +427,13 @@ class DriverManager:
                 profile = os.path.abspath(self.profile_path)
             command = self._edge_kill_powershell(profile=profile)
             self._run_kill(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ],
                 wait,
             )
         self._clear_profile_locks()
@@ -498,7 +500,7 @@ class DriverManager:
                 "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
                 "-ErrorAction SilentlyContinue | "
                 "Where-Object { "
-                "$_.CommandLine -like \"*$profile*\" -or "
+                '$_.CommandLine -like "*$profile*" -or '
                 "$_.CommandLine -like '*--test-type=webdriver*' -or "
                 "$_.CommandLine -like '*--edge-skip-compat-layer-relaunch*' "
                 "} | "
@@ -573,7 +575,9 @@ class DriverManager:
         ]
         if hide:
             args.insert(-1, "--window-position=-32000,-32000")
-        creationflags = 0x00000010 if platform.system() == "Windows" else 0  # CREATE_NEW_CONSOLE off; use DETACHED
+        creationflags = (
+            0x00000010 if platform.system() == "Windows" else 0
+        )  # CREATE_NEW_CONSOLE off; use DETACHED
         # DETACHED_PROCESS (0x00000008) + CREATE_NEW_PROCESS_GROUP
         if platform.system() == "Windows":
             creationflags = 0x00000200  # CREATE_NEW_PROCESS_GROUP
@@ -617,7 +621,13 @@ class DriverManager:
         )
         try:
             subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ],
                 capture_output=True,
                 timeout=2,
                 creationflags=0x08000000,
