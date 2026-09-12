@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import (
     NoSuchElementException,
+    StaleElementReferenceException,
     TimeoutException,
     WebDriverException,
 )
@@ -200,6 +201,7 @@ class SearchEngine:
         next_coffee_break = self.get_coffee_break_count()
         searches_since_break = 0
         successful = 0
+        consecutive_dead = 0
 
         self._log(f"Loaded {len(queries)} queries. Starting searches...")
         self._log(f"Next coffee break after {next_coffee_break} searches.")
@@ -212,6 +214,7 @@ class SearchEngine:
             try:
                 # Phone-client searches must look like the Bing app (Colombia).
                 # Desktop matches the original repo: plain bing.com.
+                got_timeout = False
                 try:
                     if mobile:
                         driver.get(
@@ -220,6 +223,7 @@ class SearchEngine:
                     else:
                         driver.get("https://www.bing.com")
                 except TimeoutException:
+                    got_timeout = True
                     try:
                         driver.execute_script("window.stop();")
                     except Exception:
@@ -262,7 +266,11 @@ class SearchEngine:
                         self._log("Stop requested — halting search loop.")
                         return successful
                     search_box = self._find_search_box(driver)
-                search_box.clear()
+                try:
+                    search_box.clear()
+                except StaleElementReferenceException:
+                    search_box = self._find_search_box(driver)
+                    search_box.clear()
 
                 # Log the search query in log area
                 self._log(f"Search #{i + 1}: {query}")
@@ -347,33 +355,36 @@ class SearchEngine:
                     self._log("Stop requested — halting search loop.")
                     return successful
 
-                # Close all tabs other than main
-                if chosen_tab["name"] != "All":
-                    new_tabs = [tab for tab in driver.window_handles if tab != main_tab]
-                    for tab in new_tabs:
+                # Close extra tabs from this search (any host).
+                try:
+                    if chosen_tab["name"] == "All":
+                        main_tab = driver.current_window_handle
+                    handles = list(driver.window_handles)
+                    for tab in handles:
+                        if tab == main_tab:
+                            continue
                         try:
                             driver.switch_to.window(tab)
-                            hostname = (
-                                (urlparse(driver.current_url).hostname or "")
-                                .lower()
-                                .rstrip(".")
-                            )
-                            if hostname != "bing.com" and not hostname.endswith(
-                                ".bing.com"
-                            ):
-                                continue
                             driver.close()
                         except WebDriverException as e:
                             short_error = str(e).split("\n")[0][:28]
                             self._log(
                                 f"[WARNING] WebDriver error when closing tab: {short_error}. Continuing."
                             )
-
                     if main_tab in driver.window_handles:
                         driver.switch_to.window(main_tab)
+                except WebDriverException:
+                    pass
+
+                if got_timeout and not self._has_search_results(driver):
+                    self._log(f"[ERROR] Search #{i + 1} timed out with no results.")
+                    self._add_to_history(f"Search: {query}", "[ERROR] Timed out")
+                    consecutive_dead = 0
+                    continue
 
                 # Add to history.json
                 self._add_to_history(f"Search: {query}", "Success")
+                consecutive_dead = 0
                 successful += 1
                 if callable(on_success):
                     try:
@@ -395,6 +406,15 @@ class SearchEngine:
                 self._add_to_history(
                     f"Search: {query}", f"[ERROR] WebDriver Error: {short_error}"
                 )
+                if self._session_dead(e):
+                    consecutive_dead += 1
+                    if consecutive_dead >= 2:
+                        self._log(
+                            "[ERROR] Edge session is dead. Aborting remaining searches."
+                        )
+                        raise
+                else:
+                    consecutive_dead = 0
 
             except Exception as e:
                 if stop_event is not None and stop_event.is_set():
@@ -405,6 +425,29 @@ class SearchEngine:
                 )
 
         return successful
+
+    def _session_dead(self, err):
+        msg = str(err or "").lower()
+        return (
+            "invalid session" in msg
+            or "not reachable" in msg
+            or "disconnected" in msg
+            or "session deleted" in msg
+            or "target window already closed" in msg
+        )
+
+    def _has_search_results(self, driver):
+        try:
+            url = (driver.current_url or "").lower()
+            if "/search?" in url or "search?q=" in url:
+                return True
+        except Exception:
+            pass
+        try:
+            driver.find_element(By.ID, "b_results")
+            return True
+        except Exception:
+            return False
 
     def _find_search_box(self, driver):
         """Locate Bing's search box. Upstream uses NAME=q; Bing also uses textarea."""
