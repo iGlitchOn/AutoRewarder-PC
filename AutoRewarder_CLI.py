@@ -83,9 +83,10 @@ def _run_once(api, pc, mobile):
     """
     console_log(f"Single run: PC={pc}, Mobile={mobile}")
     try:
-        api.main(int(pc), int(mobile))
+        return bool(api.main(int(pc), int(mobile)))
     except Exception as e:
         console_log(f"[ERROR] Run failed: {e}")
+        return False
 
 
 def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
@@ -116,7 +117,7 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
 
     if total <= 0:
         console_log("Nothing scheduled (PC + Mobile = 0).")
-        return
+        return False
 
     # Batch sizing heuristic identical to v3.1 main's runner.
     if qph > 0:
@@ -135,6 +136,7 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
 
     pc_left = pc
     mobile_left = mobile
+    finished = True
 
     for i in range(num_batches):
         # Take from PC first until exhausted, then switch to Mobile.
@@ -153,9 +155,14 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
             f"(PC left {pc_left}, Mobile left {mobile_left})"
         )
         try:
-            api.main(batch_pc, batch_mobile)
+            if not api.main(batch_pc, batch_mobile, False, False):
+                console_log(f"[ERROR] Batch {i+1} did not complete.")
+                finished = False
+                break
         except Exception as e:
             console_log(f"[ERROR] Batch {i+1} failed: {e}")
+            finished = False
+            break
 
         pc_left -= batch_pc
         mobile_left -= batch_mobile
@@ -168,6 +175,7 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
         time.sleep(sleep_time)
 
     console_log("Scheduled run complete.")
+    return finished
 
 
 # ---------------------------------------------------------------------------
@@ -306,22 +314,27 @@ def _run_account(api, acc, pc_override=None, mobile_override=None, force=False):
         if api.stats is not None:
             api.stats._logger = console_log
 
-    # Mark triggered BEFORE the run so a crash doesn't produce a second run.
-    if pc_override is None and mobile_override is None:
-        _mark_triggered_today(aid)
+    ok = False
+    try:
+        if sched.get("advancedScheduling") and (
+            pc_override is None and mobile_override is None
+        ):
+            ok = _run_scheduled(
+                api,
+                pc,
+                mobile,
+                sched.get("runDuration", 3),
+                sched.get("queriesPerHour", 10),
+            )
+        else:
+            ok = _run_once(api, pc, mobile)
+    except Exception as e:
+        console_log(f"[ERROR] '{label}' failed: {e}")
+        ok = False
 
-    if sched.get("advancedScheduling") and (
-        pc_override is None and mobile_override is None
-    ):
-        _run_scheduled(
-            api,
-            pc,
-            mobile,
-            sched.get("runDuration", 3),
-            sched.get("queriesPerHour", 10),
-        )
-    else:
-        _run_once(api, pc, mobile)
+    # Only stamp the day after a finished run so a crash can still retry today.
+    if ok and pc_override is None and mobile_override is None:
+        _mark_triggered_today(aid)
 
     return True
 

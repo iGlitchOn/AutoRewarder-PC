@@ -52,11 +52,11 @@ def github_latest_release(repo, logger=None):
                 logger(
                     f"[WARNING] GitHub update check failed for {repo}: {response.status_code}"
                 )
-            return None
+            return {"ok": False, "error": f"http_{response.status_code}", "repo": repo}
         data = response.json()
         tag = str(data.get("tag_name") or "").strip()
         if not tag:
-            return None
+            return {"ok": False, "error": "no_tag", "repo": repo}
         assets = data.get("assets") or []
         asset = next(
             (
@@ -68,19 +68,20 @@ def github_latest_release(repo, logger=None):
             ),
             None,
         )
+        file_url = str((asset or {}).get("browser_download_url") or "")
         return {
+            "ok": True,
             "repo": repo,
             "tag": tag,
             "name": data.get("name") or tag,
             "url": data.get("html_url") or f"https://github.com/{repo}/releases/latest",
-            "download_url": (asset or {}).get("browser_download_url")
-            or data.get("html_url"),
+            "download_url": file_url,
             "asset_name": (asset or {}).get("name") or "",
         }
     except Exception as exc:
         if logger:
             logger(f"[WARNING] Could not check GitHub release {repo}: {exc}")
-        return None
+        return {"ok": False, "error": "network", "repo": repo}
 
 
 def wait_or_stop(seconds, stop_event=None):

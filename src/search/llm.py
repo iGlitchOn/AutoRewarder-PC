@@ -33,6 +33,21 @@ _TIMEOUT = 30  # seconds, per request
 _ANTHROPIC_VERSION = "2023-06-01"
 
 
+def openai_message_text(data):
+    """Pull assistant text from a Chat Completions payload. Empty if malformed."""
+    if not isinstance(data, dict):
+        return ""
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0] if isinstance(choices[0], dict) else {}
+    message = first.get("message") if isinstance(first.get("message"), dict) else {}
+    content = message.get("content")
+    if content is None:
+        content = first.get("text")
+    return str(content or "")
+
+
 def _max_tokens(count):
     """Rough output-token budget for `count` short JSON-array queries."""
     return min(8192, 512 + count * 30)
@@ -88,8 +103,13 @@ def _call_openai(prompt, model, api_key, max_tokens, logger):
     if resp.status_code != 200:
         _log_http_error(logger, "openai", resp)
         return ""
-    data = resp.json()
-    return data["choices"][0]["message"]["content"] or ""
+    try:
+        data = resp.json()
+    except Exception:
+        if logger:
+            logger("[WARNING] LLM (openai) returned non-JSON.")
+        return ""
+    return openai_message_text(data)
 
 
 def _call_anthropic(prompt, model, api_key, max_tokens, logger):

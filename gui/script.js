@@ -258,15 +258,26 @@ function download_custom_update() {
 function show_update_notice(result, manual) {
   result = result || {};
   const releases = Array.isArray(result.releases) ? result.releases : [];
+  const errors = Array.isArray(result.errors) ? result.errors : [];
   const original = releases.find(function (item) { return item.kind === 'original' && item.newer; });
   const custom = releases.find(function (item) { return item.kind === 'custom' && item.newer; });
   if (original) {
     update_log_once('Hay una nueva versión del repositorio original (' + original.tag + '). Notifica al desarrollador; no se instalará automáticamente.');
   }
   if (custom) {
-    _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', custom.download_url || custom.url);
+    const fileUrl = String(custom.download_url || '');
+    if (fileUrl) {
+      _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', fileUrl);
+    } else {
+      _update_panel('Nueva versión propia ' + custom.tag + ', pero no hay un instalador adjunto.', '');
+    }
   } else if (manual) {
-    _update_panel('No hay una actualización propia disponible.', '');
+    const customErr = errors.some(function (item) { return item.kind === 'custom'; });
+    if (customErr) {
+      _update_panel('No se pudo comprobar GitHub.', '');
+    } else {
+      _update_panel('No hay una actualización propia disponible.', '');
+    }
     setTimeout(cancel_custom_update, 4000);
     if (original) update_log('También hay una actualización del repositorio original para notificar al desarrollador.');
   }
@@ -1697,7 +1708,17 @@ function _manual_row(task, isIgnored) {
   openBtn.className = 'btn-secondary';
   openBtn.textContent = 'Open';
   openBtn.onclick = function () {
-    if (window.pywebview && pywebview.api) pywebview.api.open_manual_task(task.id);
+    if (!window.pywebview || !pywebview.api || !pywebview.api.open_manual_task) {
+      show_toast('Could not open this task.', 'error');
+      return;
+    }
+    pywebview.api.open_manual_task(task.id).then(function (res) {
+      if (res && res.ok === false) {
+        show_toast(res.error || res.message || 'Could not open this task.', 'error');
+      }
+    }).catch(function () {
+      show_toast('Could not open this task.', 'error');
+    });
   };
   actions.appendChild(openBtn);
   if (isIgnored) {
@@ -1949,6 +1970,11 @@ function render_phone_device(info) {
 function begin_phone_pairing() {
   if (!window.pywebview || !pywebview.api) return;
   pywebview.api.begin_phone_pairing().then(function (info) {
+    if (!info || info.ok === false) {
+      const msg = (info && (info.message || info.error)) || 'Could not start pairing.';
+      show_toast(msg === 'no_account' ? 'Select a Microsoft account first.' : msg, 'error');
+      return;
+    }
     const modal = document.getElementById('phone_pair_modal');
     if (modal) modal.hidden = false;
     render_phone_device(info);

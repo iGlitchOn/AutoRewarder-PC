@@ -2,6 +2,8 @@
 function native() {
   try { return window.Android || null; } catch (e) { return null; }
 }
+const PHONE_PROTOCOL = 2;
+const PHONE_JOB_KINDS = { checkin: 1, news: 1 };
 const state = {
   base: "",
   lan: "",
@@ -108,19 +110,54 @@ function httpRaw(method, url, body, token) {
   return null;
 }
 
-async function fetchRaw(method, url, body, token) {
+async function fetchRaw(method, url, body, token, timeoutMs) {
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
-  const res = await fetch(url, {
-    method: method,
-    headers: headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return await res.text();
+  const ms = timeoutMs || 10000;
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, ms) : null;
+  try {
+    const res = await fetch(url, {
+      method: method,
+      headers: headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+    return await res.text();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function isAuthError(e) {
   return String((e && e.message) || e) === "auth";
+}
+
+function isPcAppError(data) {
+  if (!data || data.ok !== false || !data.error) return false;
+  const known = {
+    already_running: 1,
+    no_microsoft_account: 1,
+    microsoft_setup_pending: 1,
+    browser_loading: 1,
+    bad_code: 1,
+    rate_limit: 1,
+    no_account: 1,
+    busy: 1,
+    unknown_job: 1,
+  };
+  return !!known[data.error];
+}
+
+function protocolOk(data) {
+  if (!data || data.protocol == null || data.protocol === "") return true;
+  const p = Number(data.protocol);
+  if (!isFinite(p)) return true;
+  if (p > PHONE_PROTOCOL) {
+    log("El PC usa protocolo " + p + ". Actualiza AutoRewarder Mobile.");
+    return false;
+  }
+  return true;
 }
 
 function androidId() {
@@ -162,6 +199,8 @@ async function request(method, path, body) {
         if (text == null) text = await fetchRaw(method, url, body, state.token);
         const data = JSON.parse(text || "{}");
         if (data && data.error === "auth") throw new Error("auth");
+        if (!protocolOk(data)) throw new Error("protocol");
+        if (isPcAppError(data)) return data;
         if (data && data.ok === false && data.error && data.status == null) {
           last = new Error(data.error);
           continue;
@@ -211,10 +250,13 @@ window.onBeaconRaw = function (msg) {
     return;
   }
   if (parts[0] !== "AR2" || parts.length < 3) return;
+  const until = parts.length >= 5 ? Number(parts[4] || 0) : 0;
+  if (until && until * 1000 < Date.now() - 30000) return;
   applyFound({
     url: parts[1],
     code: parts[2],
     sig: parts[3] || "",
+    until: until || 0,
   });
 };
 
@@ -377,6 +419,10 @@ async function doPair() {
         try { text = await fetchRaw("POST", base + "/pair", payload, ""); } catch (e) { continue; }
       }
       try { data = JSON.parse(text || "{}"); } catch (e) { data = null; }
+      if (data && !protocolOk(data)) {
+        status.textContent = "Este PC usa un protocolo más nuevo. Actualiza la app.";
+        return;
+      }
       if (data && data.ok && data.token) {
         used = base;
         break;
@@ -397,7 +443,7 @@ async function doPair() {
     state.account = data.account;
     state.membership = data.membership;
     state.phone = data.phone || deviceName();
-    state.ready = true;
+    state.ready = !!data.ready;
     state.base = data.public_url || data.url || used;
     state.lan = data.lan_url || (used.indexOf("192.") >= 0 || used.indexOf("10.") >= 0 ? used : state.lan);
     persist();
@@ -433,7 +479,8 @@ async function restore() {
   try { if (native() && native().discover) native().discover(); } catch (e) {}
   try {
     const me = await request("GET", "/me");
-    if (!me || !me.ok) throw new Error("auth");
+    if (me && me.error === "auth") throw new Error("auth");
+    if (!me || !me.ok) throw new Error("unreachable");
     state.account = me.account || state.account;
     state.membership = me.membership || state.membership;
     state.phone = me.phone || state.phone;
@@ -481,8 +528,9 @@ async function reconnect() {
 async function refreshOverview() {
   try {
     const disc = await request("GET", "/discover");
-    if (disc && disc.public_url) {
-      state.base = disc.public_url;
+    if (disc) {
+      const next = disc.public_url || disc.lan_url || disc.url;
+      if (next) state.base = next;
       if (disc.lan_url) state.lan = disc.lan_url;
       persist();
     }
@@ -499,16 +547,17 @@ async function refreshOverview() {
     set("rewards_level", profile.membership || state.membership || "Microsoft Rewards");
     set("rewards_region", profile.country || "Colombia");
     const frac = function (obj, fallback) {
-      if (obj && typeof obj === "object" && obj.label) return obj.label;
+      if (obj && typeof obj === "object") return obj.label || fallback || "—";
+      if (obj != null && obj !== "") return String(obj);
       return fallback || "—";
     };
     set("progress_pc", "PC: " + frac(progress.pc));
     set("progress_mobile", "Mobile: " + frac(progress.mobile));
-    set("progress_daily", "Daily: " + (progress.daily || "—"));
-    set("progress_visual", "Visual: " + (progress.visual || "—"));
-    set("progress_checkin", "Check-in: " + frac(progress.checkin, progress.checkin));
-    set("progress_news", "News: " + frac(progress.news, progress.news));
-    set("progress_edge", "Edge: " + frac(progress.edge, progress.edge));
+    set("progress_daily", "Daily: " + frac(progress.daily));
+    set("progress_visual", "Visual: " + frac(progress.visual));
+    set("progress_checkin", "Check-in: " + frac(progress.checkin));
+    set("progress_news", "News: " + frac(progress.news));
+    set("progress_edge", "Edge: " + frac(progress.edge));
     set("progress_reset", progress.reset || "—");
     const st = document.getElementById("status_text");
     const dot = document.getElementById("dot");
@@ -545,10 +594,18 @@ async function refreshOverview() {
 }
 
 async function saveQueries() {
-  const pc = Number((document.getElementById("count_pc") || {}).value || 0);
-  const mobile = Number((document.getElementById("count_mobile") || {}).value || 0);
+  const pcEl = document.getElementById("count_pc");
+  const mobEl = document.getElementById("count_mobile");
+  let pc = Math.max(0, Math.min(130, Math.floor(Number((pcEl || {}).value || 0))));
+  let mobile = Math.max(0, Math.min(99, Math.floor(Number((mobEl || {}).value || 0))));
+  if (pcEl) pcEl.value = pc;
+  if (mobEl) mobEl.value = mobile;
   try {
-    await request("POST", "/pc/queries", { pc: pc, mobile: mobile });
+    const data = await request("POST", "/pc/queries", { pc: pc, mobile: mobile });
+    if (data && data.pc != null) pc = data.pc;
+    if (data && data.mobile != null) mobile = data.mobile;
+    if (pcEl) pcEl.value = pc;
+    if (mobEl) mobEl.value = mobile;
     log("Búsquedas: PC " + pc + " / móvil " + mobile);
   } catch (e) {
     log("No se guardaron las búsquedas en el PC.");
@@ -565,8 +622,15 @@ async function pollJobs() {
 }
 
 function handleJob(job) {
+  const kind = String((job && job.kind) || "");
+  if (!PHONE_JOB_KINDS[kind]) {
+    log("PC job ignorado (kind desconocido): " + kind);
+    if (job && job.id) {
+      request("POST", "/jobs/" + job.id + "/done", { ok: false, detail: "unknown_job" }).catch(function () {});
+    }
+    return;
+  }
   state.pendingJob = job;
-  const kind = job.kind;
   log("PC job: " + kind);
   runPhone(kind);
 }
@@ -602,7 +666,7 @@ async function runPc(mode) {
 
 async function stopPc() {
   try {
-    const data = await request("POST", "/pc/stop", {});
+    const data = await request("POST", "/pc/stop", { manual: true });
     if (data && (data.ok || data.stopped)) {
       log("PC stop enviado.");
       const st = document.getElementById("status_text");
@@ -707,7 +771,6 @@ function runPhone(kind) {
   const label = kind === "news" ? "noticias" : "check-in";
   log("Abriendo " + label + " en Bing…");
   setBingBanner("Completa " + label + " en Bing. Al volver, AutoRewarder verifica el progreso.", true);
-  reportEvent(kind, true, "opened bing");
   let opened = false;
   try {
     if (native() && native().openBingApp) opened = !!native().openBingApp(kind);
@@ -720,8 +783,10 @@ function runPhone(kind) {
 }
 
 window.onBingTask = function (ok, detail) {
+  const kind = state.pendingVerify || "task";
+  state.pendingVerify = null;
   finishPending(!!ok, detail || "");
-  reportEvent(state.pendingVerify || "task", !!ok, detail || "");
+  reportEvent(kind, !!ok, detail || "");
   refreshAll();
 };
 
@@ -766,8 +831,9 @@ window.onAppResume = function () {
   } else if (state.pendingVerify) {
     const kind = state.pendingVerify;
     state.pendingVerify = null;
-    log("Volviste de Bing. Verificando " + kind + " en Rewards…");
-    reportEvent(kind, true, "returned from bing");
+    log("Volviste de Bing. Completa el check-in o las noticias en Bing si aún no lo hiciste.");
+    reportEvent(kind, false, "returned from bing, not verified");
+    finishPending(false, "returned from bing, not verified");
   }
   if (state.token) refreshAll();
   checkPhoneUpdate();
@@ -784,7 +850,20 @@ async function heartbeat() {
 }
 
 async function unlinkPhone() {
-  try { await request("POST", "/phone/unlink", {}); } catch (e) {}
+  try {
+    const data = await request("POST", "/phone/unlink", {});
+    if (!data || !data.ok) {
+      log("No se pudo desvincular en el PC. Inténtalo de nuevo.");
+      return;
+    }
+  } catch (e) {
+    if (isAuthError(e)) {
+      dropLink("El PC te desvinculó. Escanea el QR para volver a unir.");
+      return;
+    }
+    log("No se pudo desvincular: " + (e.message || e));
+    return;
+  }
   dropLink("Desvinculado. Escanea el QR para volver a unir.");
 }
 
@@ -802,7 +881,9 @@ function setUpdateBanner(msg, warn) {
   else el.textContent = msg;
   el.classList.toggle("warn", !!warn);
   const download = document.getElementById("update_download_btn");
-  if (download && !state.pendingPhoneUpdate) download.disabled = true;
+  if (download) {
+    download.disabled = !(state.pendingPhoneUpdate && state.pendingPhoneUpdate.download_url);
+  }
 }
 
 function cancelPhoneUpdate() {
@@ -813,14 +894,14 @@ function cancelPhoneUpdate() {
 function downloadPhoneUpdate() {
   const update = state.pendingPhoneUpdate;
   if (!update || !update.download_url) return;
-  setUpdateBanner("Descargando la actualización desde GitHub…");
+  setUpdateBanner(update.source === "pc" ? "Descargando la actualización desde el PC…" : "Descargando la actualización desde GitHub…");
   const n = native();
   if (n && n.downloadUpdate) {
     n.downloadUpdate(update.download_url);
+    state.pendingPhoneUpdate = null;
   } else {
     setUpdateBanner("Esta versión no puede descargar el APK automáticamente.", true);
   }
-  state.pendingPhoneUpdate = null;
 }
 
 function _phoneVersion(value) {
@@ -837,11 +918,36 @@ function _phoneReleaseNewer(latest, current) {
   return false;
 }
 
+async function _pcPhoneUpdate() {
+  const urls = bases();
+  for (let i = 0; i < urls.length; i++) {
+    try {
+      let text = httpRaw("GET", urls[i] + "/update", null, "");
+      if (text == null) text = await fetchRaw("GET", urls[i] + "/update", null, "");
+      const data = JSON.parse(text || "{}");
+      if (!data || data.ok === false) continue;
+      const name = String(data.versionName || data.versionCode || "");
+      if (!name) continue;
+      const apk = String(data.apk || "/update/apk");
+      const path = apk.indexOf("http") === 0 ? apk : (urls[i] + (apk.charAt(0) === "/" ? apk : "/" + apk));
+      return {
+        repo: "pc",
+        tag: name,
+        url: path,
+        download_url: path,
+        source: "pc",
+      };
+    } catch (e) {}
+  }
+  return null;
+}
+
 async function _githubPhoneRelease(repo) {
   const url = "https://api.github.com/repos/" + repo + "/releases/latest";
   let text = httpRaw("GET", url, null, "");
   if (text == null) text = await fetchRaw("GET", url, null, "");
   const data = JSON.parse(text || "{}");
+  if (data && data.message && !data.tag_name) throw new Error("github");
   if (!data || !data.tag_name) return null;
   const assets = Array.isArray(data.assets) ? data.assets : [];
   const apk = assets.find(function (item) {
@@ -858,18 +964,23 @@ async function _githubPhoneRelease(repo) {
 async function checkPhoneUpdate(manual) {
   if (state.phoneUpdateCheckRunning) return;
   state.phoneUpdateCheckRunning = true;
+  const watchdog = setTimeout(function () { state.phoneUpdateCheckRunning = false; }, 25000);
   const button = document.getElementById("updates_btn");
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
- const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.6") : "4.3.6";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.6") : "4.3.6";
+    const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
     if (original && _phoneReleaseNewer(original.tag, "4.3") && !state.originalUpdateNotified) {
       state.originalUpdateNotified = true;
       log("Hay una nueva versión del repositorio original (" + original.tag + "). Notifica al desarrollador; no se instalará.");
     }
-    if (custom && _phoneReleaseNewer(custom.tag, mine)) {
+    if (pcUpdate && _phoneReleaseNewer(pcUpdate.tag, mine)) {
+      state.pendingPhoneUpdate = pcUpdate;
+      setUpdateBanner("Nueva actualización del PC " + pcUpdate.tag + ". ¿Quieres descargarla?");
+    } else if (custom && _phoneReleaseNewer(custom.tag, mine)) {
       state.pendingPhoneUpdate = custom;
       if (custom.download_url) {
         setUpdateBanner("Nueva actualización propia " + custom.tag + ". ¿Quieres descargarla?");
@@ -879,12 +990,17 @@ async function checkPhoneUpdate(manual) {
         if (download) download.disabled = true;
       }
     } else if (manual) {
+      state.pendingPhoneUpdate = null;
       setUpdateBanner("No hay una actualización propia disponible.");
       setTimeout(function () { if (!state.pendingPhoneUpdate) setUpdateBanner(""); }, 4000);
+    } else if (!custom || !_phoneReleaseNewer(custom.tag, mine)) {
+      state.pendingPhoneUpdate = null;
+      setUpdateBanner("");
     }
   } catch (e) {
     if (manual) setUpdateBanner("No se pudo comprobar GitHub.", true);
   } finally {
+    clearTimeout(watchdog);
     state.phoneUpdateCheckRunning = false;
     if (manual && button) { button.disabled = false; button.textContent = "Buscar updates"; }
   }

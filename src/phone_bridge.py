@@ -23,6 +23,8 @@ from .config import APP_DIR, CURRENT_VERSION, GUI_DIR
 
 BRIDGE_PORT = 38471
 BEACON_PORT = 38472
+PROTOCOL_VERSION = 2
+PHONE_JOB_KINDS = frozenset(("checkin", "news"))
 
 
 def _pair_secret():
@@ -56,6 +58,38 @@ def _lan_ip():
     finally:
         sock.close()
     return ip
+
+
+def match_existing_phone(phones, android_id="", name="", model=""):
+    """Pick a stored phone. Prefer android_id; never collide two devices by model."""
+    android_id = str(android_id or "").strip()
+    name = str(name or "").strip()
+    model = str(model or "").strip()
+    phones = list(phones or [])
+    if android_id:
+        for phone in phones:
+            if str(phone.get("android_id") or "") == android_id:
+                return phone
+        return None
+    for phone in phones:
+        if phone.get("android_id"):
+            continue
+        if name and phone.get("name") == name:
+            return phone
+        if model and phone.get("model") == model:
+            return phone
+    return None
+
+
+def event_completes_job(kind, detail=""):
+    """True when a /phone/event should finish a queued PC job."""
+    kind = str(kind or "")
+    detail_l = str(detail or "").lower()
+    if kind not in ("checkin", "news"):
+        return False
+    if "opened" in detail_l:
+        return False
+    return True
 
 
 class PhoneBridge:
@@ -151,6 +185,9 @@ class PhoneBridge:
             except Exception:
                 qr = ""
         return {
+            "ok": True,
+            "protocol": PROTOCOL_VERSION,
+            "app": CURRENT_VERSION,
             "ip": _lan_ip(),
             "port": self.port,
             "url": remote,
@@ -190,11 +227,37 @@ class PhoneBridge:
             hashlib.sha256,
         ).hexdigest()[:16]
 
+    def _hmac_ok(self, code, url, sig, until):
+        """True when sig is empty (manual 6-digit) or matches a known URL."""
+        sig = str(sig or "").strip()
+        if not sig:
+            return True
+        urls = []
+        for candidate in (url, f"http://{_lan_ip()}:{self.port}"):
+            item = str(candidate or "").rstrip("/")
+            if item and item not in urls:
+                urls.append(item)
+        if self.tunnel is not None:
+            pub = str(getattr(self.tunnel, "public_url", None) or "").rstrip("/")
+            if pub and pub not in urls:
+                urls.append(pub)
+        for candidate in urls:
+            expected = self._sign(candidate, code, until)
+            try:
+                if hmac.compare_digest(sig, expected):
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _verify_pair(self, code, url, sig):
         """Accept the 6-digit code if it is the current one or a recent one.
 
         The phone often retries, and the PC used to throw the code away after
         the first POST — the PC looked linked, the phone saw 'expired'.
+
+        A beacon HMAC is checked when the phone sends `sig`. Manual pairing
+        with only the 6-digit code still works (empty sig).
         """
         code = str(code or "").strip()
         now = time.time()
@@ -206,10 +269,10 @@ class PhoneBridge:
         ):
             return "replay"
         if self._pair_code and now <= self._pair_until and code == str(self._pair_code):
-            return True
+            return bool(self._hmac_ok(code, url, sig, self._pair_until))
         for prev, until in self._valid_codes:
             if prev == code and now <= float(until):
-                return True
+                return bool(self._hmac_ok(code, url, sig, until))
         return False
 
     def cancel_pairing(self):
@@ -252,6 +315,9 @@ class PhoneBridge:
 
     def enqueue(self, kind, detail=""):
         """Queue a job for the linked phone. Returns job id or None."""
+        kind = str(kind or "")
+        if kind not in PHONE_JOB_KINDS:
+            return None
         if not self._online_phones():
             return None
         job_id = uuid.uuid4().hex[:12]
@@ -274,7 +340,15 @@ class PhoneBridge:
         job = self._jobs.get(job_id)
         if not job:
             return {"ok": False, "detail": "no job"}
-        job["event"].wait(timeout=timeout)
+        finished = job["event"].wait(timeout=timeout)
+        if not finished:
+            with self._lock:
+                if job.get("status") in ("queued", "sent"):
+                    job["status"] = "expired"
+                    job["ok"] = False
+                    job["result"] = "timeout"
+                    job["event"].set()
+            return {"ok": False, "detail": "timeout", "status": "expired"}
         return {
             "ok": bool(job.get("ok")),
             "detail": job.get("result") or job.get("status"),
@@ -463,7 +537,15 @@ class PhoneBridge:
             def _do_GET(self):
                 path = urlparse(self.path).path
                 if path == "/ping":
-                    return self._json(200, {"ok": True, "version": CURRENT_VERSION})
+                    return self._json(
+                        200,
+                        {
+                            "ok": True,
+                            "version": CURRENT_VERSION,
+                            "protocol": PROTOCOL_VERSION,
+                            "app": CURRENT_VERSION,
+                        },
+                    )
                 if path == "/pair/begin":
                     ip = self.client_address[0] if self.client_address else ""
                     if ip not in ("127.0.0.1", "::1"):
@@ -498,6 +580,8 @@ class PhoneBridge:
                             "phone": phone.get("name") or "Phone",
                             "ready": bool(acc.get("first_setup_done")),
                             "version": CURRENT_VERSION,
+                            "protocol": PROTOCOL_VERSION,
+                            "app": CURRENT_VERSION,
                             "ui_locale": getattr(
                                 bridge.api, "ui_locale", lambda: "en"
                             )(),
@@ -625,14 +709,13 @@ class PhoneBridge:
                     bridge._pair_fails.pop(ip, None)
                     name = str(body.get("name") or "Phone")[:40]
                     model = str(body.get("model") or "")[:40]
-                    phone = None
-                    for existing in bridge.api.account_meta.get_phones():
-                        if (
-                            existing.get("name") == name
-                            or existing.get("model") == model
-                        ):
-                            phone = existing
-                            break
+                    android_id = str(body.get("android_id") or "").strip()[:64]
+                    phone = match_existing_phone(
+                        bridge.api.account_meta.get_phones(),
+                        android_id=android_id,
+                        name=name,
+                        model=model,
+                    )
                     if phone is None:
                         phone = {
                             "id": uuid.uuid4().hex[:10],
@@ -641,7 +724,6 @@ class PhoneBridge:
                         }
                     phone["name"] = name
                     phone["model"] = model
-                    android_id = str(body.get("android_id") or "").strip()[:64]
                     if android_id:
                         phone["android_id"] = android_id
                     phone["last_seen"] = datetime.now().isoformat(timespec="seconds")
@@ -661,6 +743,10 @@ class PhoneBridge:
                         "url": info.get("url"),
                         "lan_url": info.get("lan_url"),
                         "public_url": info.get("public_url"),
+                        "ready": bool(acc.get("first_setup_done")),
+                        "protocol": PROTOCOL_VERSION,
+                        "app": CURRENT_VERSION,
+                        "version": CURRENT_VERSION,
                     }
                     bridge._pair_replay = {
                         "code": code,
@@ -690,7 +776,9 @@ class PhoneBridge:
                     with bridge._lock:
                         job = bridge._jobs.get(job_id)
                         if not job:
-                            return self._json(404, {"ok": False})
+                            return self._json(
+                                404, {"ok": False, "error": "unknown_job"}
+                            )
                         job["status"] = "done"
                         job["ok"] = bool(body.get("ok"))
                         job["result"] = str(body.get("detail") or "")
@@ -729,13 +817,21 @@ class PhoneBridge:
                         args=("queries", True, ""),
                         daemon=True,
                     ).start()
-                    return self._json(200, {"ok": True})
-                if path == "/pc/stop":
                     try:
-                        bridge.api.stop()
+                        pc = int(bridge.api.global_settings.get_queries_pc())
+                        mobile = int(bridge.api.global_settings.get_queries_mobile())
+                    except Exception:
+                        pc, mobile = 15, 15
+                    return self._json(200, {"ok": True, "pc": pc, "mobile": mobile})
+                if path == "/pc/stop":
+                    manual = bool(body.get("manual"))
+                    try:
+                        bridge.api.stop(manual)
                     except Exception as e:
                         return self._json(500, {"ok": False, "error": str(e)})
-                    return self._json(200, {"ok": True, "stopped": True})
+                    return self._json(
+                        200, {"ok": True, "stopped": True, "manual": manual}
+                    )
                 if path == "/phone/event":
                     kind = str(body.get("kind") or "")
                     ok = bool(body.get("ok"))
@@ -744,6 +840,18 @@ class PhoneBridge:
                         f"Phone event {phone.get('name')}: {kind} "
                         f"{'ok' if ok else 'fail'} {detail}"
                     )
+                    if event_completes_job(kind, detail):
+                        with bridge._lock:
+                            for job in bridge._jobs.values():
+                                if job.get("kind") == kind and job.get("status") in (
+                                    "queued",
+                                    "sent",
+                                ):
+                                    job["status"] = "done"
+                                    job["ok"] = ok
+                                    job["result"] = detail or "phone event"
+                                    job["event"].set()
+                                    break
                     threading.Thread(
                         target=bridge._notify_ui,
                         args=(kind, ok, detail),

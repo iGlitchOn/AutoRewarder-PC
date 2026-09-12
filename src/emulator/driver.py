@@ -252,6 +252,7 @@ class DriverManager:
                     options=build_options(recovery_mode=attempt > 0),
                 )
                 last_err = None
+                self._remember_driver_pid(_driver)
                 break
             except Exception as err:
                 last_err = err
@@ -261,6 +262,7 @@ class DriverManager:
                     try:
                         _driver = self._attach_fallback(hide=headless)
                         last_err = None
+                        self._remember_driver_pid(_driver)
                         break
                     except Exception as attach_err:
                         last_err = attach_err
@@ -364,20 +366,24 @@ class DriverManager:
 
     @staticmethod
     def _edge_kill_powershell(profile=None, all_accounts=False):
-        needles = [
-            "--test-type=webdriver",
-            "AutoRewarder\\accounts",
-            "AutoRewarder/accounts",
-        ]
+        # Only AutoRewarder account profiles — never every msedgedriver on the machine.
+        needles = []
         if profile:
-            needles.insert(0, profile)
+            needles.append(profile)
         if all_accounts:
-            needles.append("EdgeProfile")
+            needles.extend(
+                [
+                    "AutoRewarder\\accounts",
+                    "AutoRewarder/accounts",
+                    "EdgeProfile",
+                ]
+            )
+        if not needles:
+            needles = ["AutoRewarder\\accounts", "AutoRewarder/accounts"]
         lines = [
             "$needles = @("
             + ", ".join("'" + n.replace("'", "''") + "'" for n in needles)
             + ")",
-            "Get-Process msedgedriver -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
             "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" -ErrorAction SilentlyContinue |",
             "  Where-Object {",
             "    $cl = $_.CommandLine; if (-not $cl) { return $false }",
@@ -408,6 +414,26 @@ class DriverManager:
         except Exception:
             pass
 
+    def _remember_driver_pid(self, driver):
+        try:
+            proc = getattr(getattr(driver, "service", None), "process", None)
+            pid = getattr(proc, "pid", None)
+            if not pid:
+                return
+            pids = list(getattr(self, "_service_pids", []) or [])
+            pids.append(int(pid))
+            self._service_pids = pids
+        except Exception:
+            pass
+
+    def _kill_tracked_drivers(self, wait=False):
+        if platform.system() != "Windows":
+            self._service_pids = []
+            return
+        for pid in list(getattr(self, "_service_pids", []) or []):
+            self._run_kill(["taskkill", "/F", "/PID", str(pid), "/T"], wait)
+        self._service_pids = []
+
     def kill_now(self, wait=False):
         """
         Kill WebDriver and this profile's Edge, including the real foreground
@@ -421,7 +447,7 @@ class DriverManager:
             for pid in list(getattr(self, "_native_pids", []) or []):
                 self._run_kill(["taskkill", "/F", "/PID", str(pid), "/T"], wait)
             self._native_pids = []
-            self._run_kill(["taskkill", "/F", "/IM", "msedgedriver.exe", "/T"], wait)
+            self._kill_tracked_drivers(wait=wait)
             profile = ""
             if self.profile_path:
                 profile = os.path.abspath(self.profile_path)
@@ -445,7 +471,6 @@ class DriverManager:
             return
         flags = cls._KILL_FLAGS
         args_list = [
-            ["taskkill", "/F", "/IM", "msedgedriver.exe", "/T"],
             [
                 "powershell.exe",
                 "-NoProfile",
@@ -480,15 +505,7 @@ class DriverManager:
             return 0
 
         flags = 0x08000000
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "msedgedriver.exe", "/T"],
-                capture_output=True,
-                timeout=3,
-                creationflags=flags,
-            )
-        except Exception:
-            pass
+        self._kill_tracked_drivers(wait=True)
 
         if self.profile_path:
             profile = os.path.abspath(self.profile_path).replace("'", "''")
@@ -500,9 +517,7 @@ class DriverManager:
                 "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
                 "-ErrorAction SilentlyContinue | "
                 "Where-Object { "
-                '$_.CommandLine -like "*$profile*" -or '
-                "$_.CommandLine -like '*--test-type=webdriver*' -or "
-                "$_.CommandLine -like '*--edge-skip-compat-layer-relaunch*' "
+                '$_.CommandLine -like "*$profile*" '
                 "} | "
                 "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
                 "-ErrorAction SilentlyContinue }"

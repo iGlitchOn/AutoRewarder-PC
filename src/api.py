@@ -668,16 +668,25 @@ class AutoRewarderAPI:
     def check_updates(self):
         """Check upstream and custom PC releases without downloading anything."""
         releases = []
+        errors = []
         for kind, repo, baseline in (
             ("original", "safarsin/AutoRewarder", GITHUB_VERSION),
             ("custom", REPO, CURRENT_VERSION),
         ):
             release = github_latest_release(repo, logger=self.log)
-            if release:
+            if release and release.get("tag"):
                 release["kind"] = kind
                 release["newer"] = bool(release_is_newer(release["tag"], baseline))
                 releases.append(release)
-        return {"ok": True, "current": CURRENT_VERSION, "releases": releases}
+            else:
+                err = (release or {}).get("error") if isinstance(release, dict) else "unavailable"
+                errors.append({"kind": kind, "repo": repo, "error": err or "unavailable"})
+        return {
+            "ok": True,
+            "current": CURRENT_VERSION,
+            "releases": releases,
+            "errors": errors,
+        }
 
     def open_link(self, url):
         """Open a URL in the system default browser."""
@@ -1514,7 +1523,8 @@ class AutoRewarderAPI:
         it, Windows silently skips a trigger that fired while the machine
         was off (unlike systemd's Persistent=true). With it, the task
         runs as soon as possible after the missed time at the next boot —
-        matching the Linux behavior.
+        matching the Linux behavior. Queue (not IgnoreNew) so a long
+        advanced run cannot drop the next day's trigger.
 
         Also: <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
         so laptop users on battery still get their run.
@@ -1557,11 +1567,11 @@ class AutoRewarderAPI:
             "    </Principal>\n"
             "  </Principals>\n"
             "  <Settings>\n"
-            "    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n"
+            "    <MultipleInstancesPolicy>Queue</MultipleInstancesPolicy>\n"
             "    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n"
             "    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"
             "    <AllowHardTerminate>true</AllowHardTerminate>\n"
-            "    <StartWhenAvailable>false</StartWhenAvailable>\n"
+            "    <StartWhenAvailable>true</StartWhenAvailable>\n"
             "    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\n"
             "    <AllowStartOnDemand>true</AllowStartOnDemand>\n"
             "    <Enabled>true</Enabled>\n"
@@ -1988,7 +1998,12 @@ class AutoRewarderAPI:
 
     def send_phone_job(self, kind):
         """Queue checkin/news for the linked phone. Returns immediately."""
-        job_id = self._phone_bridge().enqueue(str(kind or "checkin"))
+        from .phone_bridge import PHONE_JOB_KINDS
+
+        kind = str(kind or "checkin")
+        if kind not in PHONE_JOB_KINDS:
+            return {"ok": False, "error": "unknown_job"}
+        job_id = self._phone_bridge().enqueue(kind)
         if not job_id:
             return {"ok": False, "error": "no phone linked or phone offline"}
         self.log(f"Queued '{kind}' for the linked phone.")
@@ -2284,10 +2299,17 @@ class AutoRewarderAPI:
   (top-right on Bing) and choose 'Sign in with a different account'.
 - Close the browser when you're done.""")
 
+            setup_deadline = time.monotonic() + 900
             while len(setup_driver.window_handles) > 0:
+                if time.monotonic() >= setup_deadline:
+                    self.log(
+                        "[ERROR] First Setup timed out waiting for the browser to close."
+                    )
+                    setup_succeeded = False
+                    break
                 time.sleep(1)
-
-            setup_succeeded = True
+            else:
+                setup_succeeded = True
 
         except Exception as e:
             error_msg = str(e).lower()
@@ -3119,7 +3141,7 @@ class AutoRewarderAPI:
         if not self._stop_event.is_set() and pc_left <= 0 and mobile_left <= 0:
             self.log("Advanced schedule completed!")
 
-    def main(self, pc_count, mobile_count=0, daily_only=False):
+    def main(self, pc_count, mobile_count=0, daily_only=False, stamp_schedule=True):
         """
         Run the bot against the currently-selected account.
 
@@ -3137,6 +3159,7 @@ class AutoRewarderAPI:
             pc_count (int): how many searches to do in the PC phase (ignored if daily_only)
             mobile_count (int): how many searches to do in the Mobile phase (ignored if daily_only)
             daily_only (bool): whether to skip searches and just run the Daily Set
+            stamp_schedule (bool): write last_triggered_date on Done (False for CLI batches)
         """
         if self.account_manager.current_id() is None:
             self.log("[ERROR] No account selected. Add one via the dropdown.")
@@ -3187,7 +3210,7 @@ class AutoRewarderAPI:
 
         if not self._run_lock.acquire(blocking=False):
             self.log("[WARNING] A run is already in progress.")
-            return
+            return False
 
         seq = self._run_seq
         self._stop_event.clear()
@@ -3197,7 +3220,9 @@ class AutoRewarderAPI:
             except Exception:
                 pass
             self._safe_log("Stopped before start.")
-            return
+            return False
+
+        completed = False
 
         # Reset per-run stats accumulators. _run_phase / _run_daily_only feed
         # these; _record_session_stats() folds them into stats.json at the end.
@@ -3279,8 +3304,9 @@ class AutoRewarderAPI:
                 self.log("Stopped.")
             else:
                 self.log("Done!")
+                completed = True
 
-                if self.account_meta is not None:
+                if stamp_schedule and self.account_meta is not None:
                     try:
                         from datetime import date
 
@@ -3292,6 +3318,13 @@ class AutoRewarderAPI:
                             self.account_meta.set_schedule(current_schedule)
                     except Exception as e:
                         self.log(f"[WARNING] Failed to update deduplication date: {e}")
+        except Exception as e:
+            self.log(f"[ERROR] Run failed: {e}")
+            try:
+                if self.history is not None:
+                    self.history.add_to_history("Run", "[ERROR] " + str(e)[:80])
+            except Exception:
+                pass
         finally:
             # Persist this run's activity + balance before unlocking, so a
             # GUI refresh triggered by enable_start_button() reads fresh stats.
@@ -3301,7 +3334,11 @@ class AutoRewarderAPI:
                     self._webview_window.evaluate_js("enable_start_button()")
             except Exception:
                 pass
-            self._run_lock.release()
+            try:
+                self._run_lock.release()
+            except Exception:
+                pass
+        return completed
 
     def _try_scrape_balance(self):
         """
