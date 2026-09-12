@@ -145,6 +145,7 @@ function isPcAppError(data) {
     no_account: 1,
     busy: 1,
     unknown_job: 1,
+    protocol: 1,
   };
   return !!known[data.error];
 }
@@ -390,7 +391,7 @@ async function doPair() {
     }
     const found = state.found;
     if (!found || !found.url) {
-      status.textContent = "Aún no se ve el PC. En datos móviles pulsa el cuadrado QR y apunta al código del PC. En Wi‑Fi, espera y reintenta.";
+      status.textContent = "Aún no se ve el PC. AutoRewarder en el PC tiene que ser 4.3 o más (el 4.2 no tiene puente). En Wi‑Fi reintenta; en datos, escanea el QR.";
       return;
     }
     const urls = [];
@@ -413,6 +414,7 @@ async function doPair() {
         name: deviceName(),
         model: deviceModel(),
         android_id: androidId(),
+        protocol: PHONE_PROTOCOL,
       };
       let text = httpRaw("POST", base + "/pair", payload, "");
       if (text == null) {
@@ -430,10 +432,14 @@ async function doPair() {
     }
     if (!data || !data.ok || !data.token) {
       const msg = (data && (data.message || data.error)) || "";
-      if (data && data.error === "no_microsoft_account") {
+      if (!data) {
+        status.textContent = "No hay puente en ese PC (¿versión 4.2?). Actualiza AutoRewarder a 4.3 o más.";
+      } else if (data.error === "no_microsoft_account") {
         status.textContent = data.message || "No hay cuenta Microsoft seleccionada en el PC.";
-      } else if (data && data.error === "rate_limit") {
+      } else if (data.error === "rate_limit") {
         status.textContent = "Demasiados intentos. Espera un minuto y usa el código nuevo del PC.";
+      } else if (data.error === "protocol") {
+        status.textContent = data.message || "Actualiza AutoRewarder en el PC.";
       } else {
         status.textContent = msg || "Código no activo. En el PC: Account → Vincular un celular, y usa ese código.";
       }
@@ -453,7 +459,7 @@ async function doPair() {
     reportEvent("paired", true, "linked");
     ensureBingSetup(true);
   } catch (e) {
-    status.textContent = "No se alcanzó el PC. ¿AutoRewarder abierto? Escanea el QR.";
+    status.textContent = "No se alcanzó el PC. ¿AutoRewarder 4.3+ abierto en la misma red? El 4.2 no tiene puente. Escanea el QR si hace falta.";
   } finally {
     state.pairing = false;
   }

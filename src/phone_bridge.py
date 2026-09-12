@@ -27,6 +27,16 @@ PROTOCOL_VERSION = 2
 PHONE_JOB_KINDS = frozenset(("checkin", "news"))
 
 
+def wire_protocol(value):
+    """Protocol the peer speaks. Missing/invalid means AR2 (all 4.3.x)."""
+    if value is None or value == "":
+        return PROTOCOL_VERSION
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return PROTOCOL_VERSION
+
+
 def _pair_secret():
     path = os.path.join(APP_DIR, "pair_secret.txt")
     if os.path.isfile(path):
@@ -678,6 +688,18 @@ class PhoneBridge:
                     code = str(body.get("code") or "").strip()
                     sig = str(body.get("sig") or "").strip()
                     url = str(body.get("url") or "").strip()
+                    phone_protocol = wire_protocol(body.get("protocol"))
+                    if phone_protocol > PROTOCOL_VERSION:
+                        return self._json(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "protocol",
+                                "protocol": PROTOCOL_VERSION,
+                                "app": CURRENT_VERSION,
+                                "message": "Este celular usa un protocolo más nuevo. Actualiza AutoRewarder en el PC.",
+                            },
+                        )
                     verdict = bridge._verify_pair(code, url, sig)
                     if verdict == "replay":
                         return self._json(200, bridge._pair_replay["payload"])
