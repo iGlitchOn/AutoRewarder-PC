@@ -679,8 +679,14 @@ class AutoRewarderAPI:
                 release["newer"] = bool(release_is_newer(release["tag"], baseline))
                 releases.append(release)
             else:
-                err = (release or {}).get("error") if isinstance(release, dict) else "unavailable"
-                errors.append({"kind": kind, "repo": repo, "error": err or "unavailable"})
+                err = (
+                    (release or {}).get("error")
+                    if isinstance(release, dict)
+                    else "unavailable"
+                )
+                errors.append(
+                    {"kind": kind, "repo": repo, "error": err or "unavailable"}
+                )
         return {
             "ok": True,
             "current": CURRENT_VERSION,
