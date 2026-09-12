@@ -538,7 +538,9 @@ async function restore() {
       dropLink("El PC te desvinculó. Escanea el QR para volver a unir.");
       return;
     }
-    log("PC no reachable. La vinculación se guarda; no se pierde al cerrar la app. Escanea el QR si el PC cambió de enlace.");
+    log("PC no reachable. Reintentando con la última URL…");
+    const again = await reconnect(state.lan || state.base);
+    if (again) return;
     const hint = document.getElementById("offline_hint");
     if (hint) {
       hint.hidden = false;
@@ -547,9 +549,10 @@ async function restore() {
   }
 }
 
-async function reconnect() {
-  const host = String((document.getElementById("reconnect_host") || {}).value || "").trim();
-  if (!host) return;
+async function reconnect(hostOverride) {
+  const typed = String((document.getElementById("reconnect_host") || {}).value || "").trim();
+  const host = hostOverride || typed || state.lan || state.base;
+  if (!host) return false;
   state.base = normalizeBase(host.indexOf("http") === 0 || host.indexOf(":") >= 0 ? host : host + ":38471");
   persist();
   try {
@@ -558,11 +561,16 @@ async function reconnect() {
       log("Reconectado.");
       const recon = document.getElementById("reconnect_wrap");
       if (recon) recon.hidden = true;
+      const hint = document.getElementById("offline_hint");
+      if (hint) hint.hidden = true;
       refreshOverview();
-    } else log("Ese enlace no aceptó este teléfono.");
+      return true;
+    }
+    log("Ese enlace no aceptó este teléfono.");
   } catch (e) {
     log("No se pudo reconectar.");
   }
+  return false;
 }
 
 async function refreshOverview() {
@@ -1047,7 +1055,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.10") : "4.3.10";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.11") : "4.3.11";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");

@@ -126,14 +126,22 @@ class PhoneBridge:
         if self._thread and self._thread.is_alive():
             return
         handler = self._make_handler()
-        try:
-            self._httpd = ThreadingHTTPServer(("0.0.0.0", self.port), handler)
-        except OSError as e:
+        self._httpd = None
+        for attempt in range(3):
+            try:
+                self._httpd = ThreadingHTTPServer(("0.0.0.0", self.port), handler)
+                break
+            except OSError as e:
+                print(
+                    f"[WARNING] Phone bridge port {self.port} busy "
+                    f"(try {attempt + 1}/3): {e}"
+                )
+                time.sleep(2)
+        if self._httpd is None:
             print(
-                f"[WARNING] Phone bridge port {self.port} is busy ({e}). "
+                f"[WARNING] Phone bridge port {self.port} is busy. "
                 "LAN pairing needs that port free."
             )
-            self._httpd = None
             return
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()

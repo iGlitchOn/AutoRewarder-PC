@@ -331,6 +331,14 @@ def _run_account(api, acc, pc_override=None, mobile_override=None, force=False):
     except Exception as e:
         console_log(f"[ERROR] '{label}' failed: {e}")
         ok = False
+    if not ok and pc_override is None and mobile_override is None:
+        console_log(f"Retrying '{label}' once after 30 seconds…")
+        time.sleep(30)
+        try:
+            ok = _run_once(api, pc, mobile)
+        except Exception as e:
+            console_log(f"[ERROR] '{label}' retry failed: {e}")
+            ok = False
 
     # Only stamp the day after a finished run so a crash can still retry today.
     if ok and pc_override is None and mobile_override is None:

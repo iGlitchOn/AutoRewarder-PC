@@ -118,6 +118,7 @@ class AutoRewarderAPI:
         self._history_window = None
         self._driver = None
         self.is_driver_loading = False
+        self._driver_loading_since = 0
         self._run_lock = threading.Lock()
         # Serializes ad-hoc balance scrapes so concurrent refreshes can't open
         # two drivers on the same Edge profile at once.
@@ -707,6 +708,7 @@ class AutoRewarderAPI:
             return
 
         self.is_driver_loading = True
+        self._driver_loading_since = time.time()
         try:
             warmup_driver = self.driver_manager.setup_driver(headless=True)
             try:
@@ -730,11 +732,16 @@ class AutoRewarderAPI:
                 pass
         finally:
             self.is_driver_loading = False
+            self._driver_loading_since = 0
             if self._webview_window:
                 self._webview_window.evaluate_js("stop_loader()")
 
     def check_driver_status(self):
         """Return True while the driver warmup thread is active."""
+        if self.is_driver_loading and self._driver_loading_since:
+            if time.time() - self._driver_loading_since > 90:
+                self.is_driver_loading = False
+                self._driver_loading_since = 0
         return self.is_driver_loading
 
     # ------------------------------------------------------------------
@@ -3314,14 +3321,20 @@ class AutoRewarderAPI:
                     self._run_advanced_schedule(pc_count, mobile_count, duration, qph)
                 else:
                     if pc_count > 0 and not self._stop_event.is_set():
-                        self._run_phase(
-                            mobile=False, count=pc_count, do_daily_set=False
-                        )
+                        try:
+                            self._run_phase(
+                                mobile=False, count=pc_count, do_daily_set=False
+                            )
+                        except Exception as e:
+                            self.log(f"[ERROR] PC phase failed: {e}")
 
                     if mobile_count > 0 and not self._stop_event.is_set():
-                        self._run_phase(
-                            mobile=True, count=mobile_count, do_daily_set=False
-                        )
+                        try:
+                            self._run_phase(
+                                mobile=True, count=mobile_count, do_daily_set=False
+                            )
+                        except Exception as e:
+                            self.log(f"[ERROR] Mobile phase failed: {e}")
 
                     # Always verify dashboard items after searches. Each function
                     # logs skip vs run from the live page (not status.json alone).
@@ -4167,11 +4180,20 @@ class AutoRewarderAPI:
             self._driver = self.driver_manager.setup_driver(
                 mobile=mobile, bing_app=bool(mobile)
             )
-        except Exception:
+        except Exception as e:
             if self._stop_event.is_set():
                 self.log("Stopped.")
                 return
-            raise
+            self.log(f"[WARNING] {label}: Edge failed ({e}). Retrying once.")
+            try:
+                self._driver = self.driver_manager.setup_driver(
+                    mobile=mobile, bing_app=bool(mobile)
+                )
+            except Exception as e2:
+                self.log(
+                    f"[ERROR] {label}: could not open Edge ({e2}). Skipping phase."
+                )
+                return
         if self._stop_event.is_set():
             self._quit_driver()
             return
@@ -4182,13 +4204,36 @@ class AutoRewarderAPI:
                 self._session_counts[bucket] += 1
                 self._notify_progress()
 
-            done = self.search_engine.perform_searches(
-                self._driver,
-                queries_to_search,
-                mobile=mobile,
-                stop_event=self._stop_event,
-                on_success=_on_search,
-            )
+            done = 0
+            try:
+                done = self.search_engine.perform_searches(
+                    self._driver,
+                    queries_to_search,
+                    mobile=mobile,
+                    stop_event=self._stop_event,
+                    on_success=_on_search,
+                )
+            except Exception as e:
+                self.log(
+                    f"[WARNING] {label}: searches interrupted ({e}). Reopening Edge."
+                )
+                self._quit_driver()
+                leftover = queries_to_search[int(done or 0) :]
+                if leftover and not self._stop_event.is_set():
+                    try:
+                        self._driver = self.driver_manager.setup_driver(
+                            mobile=mobile, bing_app=bool(mobile)
+                        )
+                        extra = self.search_engine.perform_searches(
+                            self._driver,
+                            leftover,
+                            mobile=mobile,
+                            stop_event=self._stop_event,
+                            on_success=_on_search,
+                        )
+                        done = int(done or 0) + int(extra or 0)
+                    except Exception as e2:
+                        self.log(f"[ERROR] {label}: remaining searches failed ({e2}).")
             self._report(
                 f"Search: {'Mobile' if mobile else 'PC'}",
                 True if int(done or 0) > 0 else False,
