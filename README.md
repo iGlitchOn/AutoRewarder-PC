@@ -2,8 +2,26 @@
 
 AutoRewarder PC es la aplicación de Windows que centraliza las búsquedas y tareas de Microsoft Rewards desde una interfaz gráfica. También puede coordinarse con la aplicación móvil para enviar comandos, consultar el estado del teléfono y ejecutar las búsquedas móviles disponibles.
 
-> Versión documentada: **4.3.5**<br>
-> Repositorio de esta distribución: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)
+> Versión documentada: **4.3.6**<br>
+> Este repositorio: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)<br>
+> **Fork de** [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder)
+
+## Origen
+
+Este proyecto es un **fork** de [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder).
+
+El motor original (Selenium + Edge, búsquedas PC/móvil emuladas, Daily Set, Visual Search, cuentas, CLI, programador y GUI pywebview) es de safarsin. Esta distribución lo conserva y añade el compañero Android y el puente PC–teléfono. Las releases propias se publican aquí; las del original se notifican y **no se instalan automáticamente**.
+
+### Cambios propios respecto al original
+
+- Aplicación Android nativa en [iGlitchOn/AutoRewarder-Mobile](https://github.com/iGlitchOn/AutoRewarder-Mobile), además de la emulación móvil en Edge.
+- Vinculación PC–teléfono por QR o código manual (`src/phone_bridge.py`, `gui/phone.html`).
+- Túnel / descubrimiento para que el teléfono encuentre este PC (`src/tunnel.py`).
+- Acciones remotas hacia el móvil: iniciar o detener búsquedas, check-in, noticias, abrir Bing o Edge.
+- Publicación y descarga de APK desde el PC (`src/apk_update.py`).
+- Comprobación dual de GitHub: instala solo releases de `iGlitchOn`; avisa si hay una versión nueva en `safarsin/AutoRewarder`.
+- Interfaz en inglés y español (`gui/i18n.js`).
+- Branding iGlitchOff y documentación de usuario en español.
 
 ## Qué hace
 
@@ -157,7 +175,7 @@ Antes de actualizar:
 4. Descarga la release desde GitHub.
 5. Sustituye solo los archivos del programa, no la carpeta de configuración.
 
-Las versiones usan el formato `4.3.x`. El tag y el nombre de release deben coincidir, por ejemplo `v4.3.5` y `4.3.5`.
+Las versiones usan el formato `4.3.x` mientras el original de safarsin sea `4.3` (si publica `4.4`, esta distribución pasa a `4.4.x`). El tag y el nombre de release deben coincidir, por ejemplo `v4.3.6` y `4.3.6`.
 
 ## Configuración y datos
 
