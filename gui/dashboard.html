@@ -451,6 +451,10 @@
         }
       }).catch(function (err) {
         console.error('refresh_balance failed:', err);
+        if (isManual) {
+          const sub = document.getElementById('total_sub');
+          if (sub) sub.textContent = 'Refresh failed.';
+        }
       }).then(function () {
         set_refresh_busy(false);
       });

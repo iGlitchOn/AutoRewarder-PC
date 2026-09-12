@@ -12,6 +12,9 @@ const state = {
   membership: "",
   phone: "",
   pendingJob: null,
+  pairing: false,
+  scanningQr: false,
+  pcBusy: false,
   pendingPhoneUpdate: null,
   phoneUpdateCheckRunning: false,
   phoneUpdateDownloading: false,
@@ -324,10 +327,20 @@ function normalizeBase(raw) {
   return v.replace(/\/$/, "");
 }
 
+function setPairBusy(busy) {
+  const btn = document.querySelector("#pair_screen .primary-btn-lg");
+  const qr = document.querySelector("#pair_screen .qr-square");
+  if (btn) btn.disabled = !!busy;
+  if (qr) qr.disabled = !!busy;
+}
+
 function scanQr() {
+  if (state.scanningQr || state.pairing) return;
   const status = document.getElementById("pair_status");
   if (status) status.textContent = "Abriendo la cámara…";
   if (native() && native().scanQr) {
+    state.scanningQr = true;
+    setPairBusy(true);
     native().scanQr();
     return;
   }
@@ -335,6 +348,8 @@ function scanQr() {
 }
 
 window.onQrScanFailed = function (msg) {
+  state.scanningQr = false;
+  if (!state.pairing) setPairBusy(false);
   const status = document.getElementById("pair_status");
   if (status) {
     status.textContent = msg || "Cámara cerrada. Escribe el código o vuelve a escanear.";
@@ -347,6 +362,7 @@ window.onLanFound = function (url) {
 };
 
 window.onQrScanned = function (text) {
+  state.scanningQr = false;
   const parsed = parsePairText(text);
   const status = document.getElementById("pair_status");
   if ((parsed && parsed.url) || (state.found && state.found.url)) {
@@ -383,6 +399,7 @@ async function doPair() {
     return;
   }
   state.pairing = true;
+  setPairBusy(true);
   try {
     if (!state.found || !state.found.url) {
       status.textContent = "Buscando el PC…";
@@ -463,6 +480,7 @@ async function doPair() {
     status.textContent = "No se alcanzó el PC. ¿AutoRewarder 4.3+ abierto en la misma red? El 4.2 no tiene puente. Escanea el QR si hace falta.";
   } finally {
     state.pairing = false;
+    setPairBusy(false);
   }
 }
 
@@ -654,6 +672,12 @@ async function finishPending(ok, detail) {
 }
 
 async function runPc(mode) {
+  if (state.pcBusy) return;
+  state.pcBusy = true;
+  ["pc_start_btn", "pc_tasks_btn", "pc_edge_btn"].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = true;
+  });
   try {
     const data = await request("POST", "/pc/run", { mode: mode });
     if (data && data.ok) log("PC: " + mode);
@@ -668,10 +692,16 @@ async function runPc(mode) {
     refreshOverview();
   } catch (e) {
     log("No se alcanzó el PC (" + (e.message || e) + ")");
+  } finally {
+    state.pcBusy = false;
   }
 }
 
 async function stopPc() {
+  if (state.pcBusy) return;
+  state.pcBusy = true;
+  const stop = document.getElementById("pc_stop_btn");
+  if (stop) stop.disabled = true;
   try {
     const data = await request("POST", "/pc/stop", { manual: true });
     if (data && (data.ok || data.stopped)) {
@@ -684,6 +714,8 @@ async function stopPc() {
     refreshOverview();
   } catch (e) {
     log("Stop no llegó al PC: " + (e.message || e));
+  } finally {
+    state.pcBusy = false;
   }
 }
 
@@ -768,6 +800,10 @@ function loginBingApp() {
 }
 
 function runPhone(kind) {
+  if (state.pendingVerify) {
+    log("Ya hay una tarea de Bing abierta.");
+    return;
+  }
   updateBingUi();
   if (!bingInstalled()) {
     state.pendingBingKind = kind;
@@ -991,7 +1027,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.7") : "4.3.7";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.8") : "4.3.8";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");

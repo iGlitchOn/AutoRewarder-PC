@@ -3216,6 +3216,11 @@ class AutoRewarderAPI:
 
         if not self._run_lock.acquire(blocking=False):
             self.log("[WARNING] A run is already in progress.")
+            if self._webview_window:
+                try:
+                    self._webview_window.evaluate_js("enable_start_button()")
+                except Exception:
+                    pass
             return False
 
         seq = self._run_seq

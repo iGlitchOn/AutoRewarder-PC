@@ -382,20 +382,22 @@ function start_bot() {
     return;
   }
 
+  if (runInProgress) return;
   set_running_ui(true);
-
-  // Save the query counts to global settings before running.
-  pywebview.api.set_queries_counts(pc, mobile).then(ok => {
-    if (!ok) console.error('Failed to save query counts (backend returned false).');
-  }).catch(err => {
-    console.error('Failed to save query counts:', err);
-  });
-
-  const tasksBtn = document.getElementById('tasks_only_btn');
-  if (tasksBtn) tasksBtn.disabled = true;
-
   update_status_indicator('executing');
-  pywebview.api.main(pc, mobile, false);
+  pywebview.api.set_queries_counts(pc, mobile).then(function (ok) {
+    if (!ok) show_toast('Could not save query counts.', 'warning');
+    return pywebview.api.main(pc, mobile, false);
+  }).then(function (started) {
+    if (started === false) {
+      show_toast('A run is already in progress.', 'warning');
+      enable_start_button();
+    }
+  }).catch(function (err) {
+    console.error(err);
+    show_toast('Could not start the run.', 'error');
+    enable_start_button();
+  });
 }
 
 function start_tasks_only() {
@@ -405,10 +407,20 @@ function start_tasks_only() {
     show_run_block_reason();
     return;
   }
+  if (runInProgress) return;
 
   set_running_ui(true);
   update_log('Starting remaining daily tasks only…');
-  pywebview.api.main(0, 0, true);
+  pywebview.api.main(0, 0, true).then(function (started) {
+    if (started === false) {
+      show_toast('A run is already in progress.', 'warning');
+      enable_start_button();
+    }
+  }).catch(function (err) {
+    console.error(err);
+    show_toast('Could not start tasks.', 'error');
+    enable_start_button();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -460,7 +472,11 @@ function enable_start_button() {
 }
 
 function stop_bot() {
-  if (!window.pywebview || !pywebview.api || !pywebview.api.stop) return;
+  if (!window.pywebview || !pywebview.api || !pywebview.api.stop) {
+    show_toast('Stop is not available.', 'error');
+    enable_start_button();
+    return;
+  }
   const stopBtn = document.getElementById('stop_btn');
   if (stopBtn) {
     stopBtn.disabled = true;
@@ -471,7 +487,11 @@ function stop_bot() {
   const text = document.getElementById('status_text');
   if (text) text.textContent = 'Stopping…';
   // Mark this as a user stop so a login-triggered run does not close the GUI.
-  pywebview.api.stop(true).catch(err => console.error('stop failed:', err));
+  pywebview.api.stop(true).catch(function (err) {
+    console.error('stop failed:', err);
+    show_toast('Stop failed.', 'error');
+    enable_start_button();
+  });
 }
 
 function update_status_indicator(forceState) {
@@ -827,6 +847,10 @@ async function prompt_and_create_account() {
     } else {
       show_toast(`Account "${result.label}" is ready.`, 'success');
     }
+    refresh_account_ui();
+  }).catch(function (err) {
+    console.error('create_account failed:', err);
+    show_toast('Could not create account.', 'error');
     refresh_account_ui();
   });
 }
@@ -1212,6 +1236,10 @@ function make_form_field(labelText, inputType, className, value, opts) {
 }
 
 async function save_settings() {
+  const saveBtn = document.getElementById('settingsSave');
+  if (saveBtn && saveBtn.disabled) return;
+  if (saveBtn) saveBtn.disabled = true;
+  try {
   const cards = Array.from(document.querySelectorAll('#schedule_accounts_list .schedule-card'));
   const closeToTrayWanted = document.getElementById('closeToTrayToggle').checked;
   const startupWanted = document.getElementById('startupToggle').checked;
@@ -1358,6 +1386,9 @@ async function save_settings() {
   } catch (err) {
     console.error('save_settings failed:', err);
     show_toast('Save failed.', 'error');
+  }
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -1880,20 +1911,34 @@ function render_phone_device(info) {
       ask.className = 'phone-mini';
       ask.textContent = 'Check-in';
       ask.title = 'Ask this phone to open Bing check-in';
+      ask.disabled = !phone.online;
       ask.addEventListener('click', function () {
+        if (ask.disabled) return;
+        ask.disabled = true;
         pywebview.api.send_phone_job('checkin').then(function (r) {
           if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
           else show_toast('Check-in sent to the phone.', 'success');
+        }).catch(function () {
+          show_toast('Could not send check-in.', 'error');
+        }).then(function () {
+          ask.disabled = false;
         });
       });
       const news = document.createElement('button');
       news.type = 'button';
       news.className = 'phone-mini';
       news.textContent = 'News';
+      news.disabled = !phone.online;
       news.addEventListener('click', function () {
+        if (news.disabled) return;
+        news.disabled = true;
         pywebview.api.send_phone_job('news').then(function (r) {
           if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
           else show_toast('Read-to-earn sent to the phone.', 'success');
+        }).catch(function () {
+          show_toast('Could not send news.', 'error');
+        }).then(function () {
+          news.disabled = false;
         });
       });
       const unlink = document.createElement('button');
@@ -1968,8 +2013,11 @@ function render_phone_device(info) {
   }
 }
 
+let phonePairingBusy = false;
 function begin_phone_pairing() {
   if (!window.pywebview || !pywebview.api) return;
+  if (phonePairingBusy) return;
+  phonePairingBusy = true;
   pywebview.api.begin_phone_pairing().then(function (info) {
     if (!info || info.ok === false) {
       const msg = (info && (info.message || info.error)) || 'Could not start pairing.';
@@ -1982,6 +2030,8 @@ function begin_phone_pairing() {
   }).catch(function (err) {
     show_toast('Could not start pairing.', 'error');
     console.error(err);
+  }).then(function () {
+    phonePairingBusy = false;
   });
 }
 
@@ -2000,7 +2050,9 @@ function copy_pair_code() {
         document.execCommand('copy');
         ta.remove();
         done();
-      } catch (e) {}
+      } catch (e) {
+        show_toast('Could not copy the code.', 'error');
+      }
     });
   }
 }
@@ -2010,5 +2062,7 @@ function cancel_phone_pairing(quiet) {
   if (modal) modal.hidden = true;
   if (quiet) return;
   if (!window.pywebview || !pywebview.api || !pywebview.api.cancel_phone_pairing) return;
-  pywebview.api.cancel_phone_pairing().then(refresh_phone_ui).catch(function () {});
+  pywebview.api.cancel_phone_pairing().then(refresh_phone_ui).catch(function () {
+    show_toast('Could not cancel pairing.', 'error');
+  });
 }

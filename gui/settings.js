@@ -61,9 +61,15 @@ function render_accounts_section(accounts) {
       if (newLabel === null) return;
       const trimmed = String(newLabel).trim();
       if (!trimmed) return;
+      renameBtn.disabled = true;
       pywebview.api.rename_account(acc.id, trimmed).then(ok => {
         if (!ok) show_toast('Rename failed.', 'error');
         else show_toast(`Renamed to "${trimmed}".`, 'success');
+      }).catch(function () {
+        show_toast('Rename failed.', 'error');
+      }).then(function () {
+        renameBtn.disabled = false;
+        refresh_account_ui();
       });
     });
 
@@ -73,9 +79,16 @@ function render_accounts_section(accounts) {
     resetupBtn.setAttribute('aria-label', resetupBtn.title);
     resetupBtn.innerHTML = ACCOUNT_ICONS.setup;
     resetupBtn.addEventListener('click', () => {
+      if (resetupBtn.disabled) return;
+      resetupBtn.disabled = true;
       show_toast(`Opening browser to set up "${acc.label}"…`, 'info', { duration: 6000 });
       pywebview.api.rerun_setup(acc.id).then(ok => {
         if (!ok) show_toast('Setup could not be started.', 'error');
+      }).catch(function () {
+        show_toast('Setup could not be started.', 'error');
+      }).then(function () {
+        resetupBtn.disabled = false;
+        refresh_account_ui();
       });
     });
 
@@ -91,9 +104,18 @@ function render_accounts_section(accounts) {
         { confirmLabel: 'Delete', danger: true }
       );
       if (!confirmed) return;
+      deleteBtn.disabled = true;
       pywebview.api.delete_account(acc.id).then(success => {
-        if (!success) show_toast('Delete failed.', 'error');
-        else show_toast(`"${acc.label}" deleted.`, 'success');
+        if (!success) {
+          show_toast('Delete failed.', 'error');
+          deleteBtn.disabled = false;
+        } else {
+          show_toast(`"${acc.label}" deleted.`, 'success');
+        }
+        refresh_account_ui();
+      }).catch(function () {
+        show_toast('Delete failed.', 'error');
+        deleteBtn.disabled = false;
       });
     });
 
