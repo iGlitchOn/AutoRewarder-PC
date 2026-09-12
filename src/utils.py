@@ -1,5 +1,6 @@
 """Shared utility helpers for AutoRewarder."""
 
+import os
 import re
 import time
 import random
@@ -37,14 +38,22 @@ def release_is_newer(latest, current):
 
 
 def github_latest_release(repo, logger=None):
-    """Return the latest public GitHub release metadata for ``repo``."""
+    """Return the latest GitHub release metadata for ``repo``.
+
+    Uses ``GITHUB_TOKEN`` / ``GH_TOKEN`` when set so private repos (and the
+    GUI Check updates button) match ``apk_update.fetch_github``.
+    """
     try:
+        headers = {
+            "User-Agent": "AutoRewarder-App",
+            "Accept": "application/vnd.github+json",
+        }
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        if token:
+            headers["Authorization"] = "Bearer " + token
         response = requests.get(
             f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={
-                "User-Agent": "AutoRewarder-App",
-                "Accept": "application/vnd.github+json",
-            },
+            headers=headers,
             timeout=8,
         )
         if response.status_code != 200:
@@ -178,6 +187,8 @@ def check_for_updates(logger=None):
     """
     Check GitHub API for the latest release and compare it to the current version.
 
+    Same timeout, headers, and optional token as ``github_latest_release``.
+
     Args:
         logger (callable, optional): A function to log messages. Defaults to None.
 
@@ -185,40 +196,13 @@ def check_for_updates(logger=None):
         tuple: (is_update_available (bool), latest_version (str or None))
     """
     try:
-        headers = {"User-Agent": "AutoRewarder-App"}
-
-        response = requests.get(
-            f"https://api.github.com/repos/{REPO}/releases/latest",
-            headers=headers,
-            timeout=5,
-        )
-        if response.status_code == 200:
-            latest = response.json().get("tag_name")
-            if latest:
-                return _github_is_newer(latest, GITHUB_VERSION), latest
-        elif response.status_code == 429:
-            if logger:
-                logger("[WARNING] GitHub API rate limit reached (429).")
-                logger("Try again later or check manually for updates.")
-        elif response.status_code == 403:
-
-            is_rate_limit = response.headers.get("X-Ratelimit-Remaining") == "0"
-
-            if logger:
-                if is_rate_limit:
-                    logger(
-                        "[WARNING] GitHub API rate limit exceeded (403). Try again later."
-                    )
-                else:
-                    logger(
-                        "[WARNING] GitHub access forbidden (403). Check your VPN or connection."
-                    )
-        else:
-            if logger:
-                logger(
-                    f"[WARNING] GitHub update check failed. Status: {response.status_code}"
-                )
-
+        release = github_latest_release(REPO, logger=logger)
+        if not release or not release.get("ok"):
+            return False, None
+        latest = release.get("tag")
+        if not latest:
+            return False, None
+        return _github_is_newer(latest, GITHUB_VERSION), latest
     except requests.exceptions.RequestException as e:
         if logger:
             logger(f"[WARNING] Network error while checking for updates: {e}")

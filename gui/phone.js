@@ -115,7 +115,11 @@ function httpRaw(method, url, body, token) {
 }
 
 async function fetchRaw(method, url, body, token, timeoutMs) {
-  const headers = { "Content-Type": "application/json", Accept: "application/json" };
+  const github = String(url || "").indexOf("api.github.com") >= 0;
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: github ? "application/vnd.github+json" : "application/json",
+  };
   if (token) headers.Authorization = "Bearer " + token;
   const ms = timeoutMs || 10000;
   const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -127,7 +131,18 @@ async function fetchRaw(method, url, body, token, timeoutMs) {
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl ? ctrl.signal : undefined,
     });
-    return await res.text();
+    const text = await res.text();
+    if (res.ok) return text;
+    try {
+      const data = JSON.parse(text || "{}");
+      if (data && typeof data === "object") {
+        if (data.status == null) data.status = res.status;
+        if (data.ok == null) data.ok = false;
+        if (!data.error) data.error = "http";
+        return JSON.stringify(data);
+      }
+    } catch (e) {}
+    return JSON.stringify({ ok: false, status: res.status, error: "http" });
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -647,12 +662,16 @@ async function pollJobs() {
 }
 
 function handleJob(job) {
-  const kind = String((job && job.kind) || "");
+  if (!job || typeof job !== "object") return;
+  const id = String(job.id || "").trim();
+  const kind = String(job.kind || "");
+  if (!id) {
+    log("PC job ignorado (sin id)");
+    return;
+  }
   if (!PHONE_JOB_KINDS[kind]) {
     log("PC job ignorado (kind desconocido): " + kind);
-    if (job && job.id) {
-      request("POST", "/jobs/" + job.id + "/done", { ok: false, detail: "unknown_job" }).catch(function () {});
-    }
+    request("POST", "/jobs/" + encodeURIComponent(id) + "/done", { ok: false, detail: "unknown_job" }).catch(function () {});
     return;
   }
   state.pendingJob = job;
@@ -662,9 +681,10 @@ function handleJob(job) {
 
 async function finishPending(ok, detail) {
   const job = state.pendingJob;
-  if (job && job.id) {
+  const id = job ? String(job.id || "").trim() : "";
+  if (id) {
     try {
-      await request("POST", "/jobs/" + job.id + "/done", { ok: !!ok, detail: detail || "" });
+      await request("POST", "/jobs/" + encodeURIComponent(id) + "/done", { ok: !!ok, detail: detail || "" });
     } catch (e) {}
   }
   state.pendingJob = null;
@@ -1027,7 +1047,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.8") : "4.3.8";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.9") : "4.3.9";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
