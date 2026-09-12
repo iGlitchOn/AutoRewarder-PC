@@ -938,6 +938,21 @@ class AutoRewarderAPI:
         """True when the bot is mid-run. Used by the headless runner to avoid overlap."""
         return self._run_lock.locked()
 
+    def start_run(self, pc_count, mobile_count=0, daily_only=False):
+        """Kick off main() on a worker thread so pywebview Stop/settings stay live."""
+        reason = self.start_block_reason()
+        if reason:
+            payload = dict(reason)
+            payload["started"] = False
+            return payload
+        threading.Thread(
+            target=self.main,
+            args=(pc_count, mobile_count, daily_only),
+            daemon=True,
+            name="bot-run",
+        ).start()
+        return {"ok": True, "started": True}
+
     def _quit_driver(self):
         """
         Drop the active Selenium session.
@@ -1007,6 +1022,12 @@ class AutoRewarderAPI:
 
     def shutdown(self):
         """Stop a run and kill Edge / tunnel when the window actually closes."""
+        try:
+            from .utils import clear_gui_lock
+
+            clear_gui_lock()
+        except Exception:
+            pass
         try:
             self.stop()
         except Exception:
@@ -2020,7 +2041,7 @@ class AutoRewarderAPI:
         from .phone_bridge import get_bridge
 
         bridge = get_bridge()
-        if bridge is None or not bridge._online_phones():
+        if bridge is None or not bridge.phones_for_jobs():
             return None
         return bridge.request_and_wait(kind, timeout=timeout)
 
@@ -3671,7 +3692,7 @@ class AutoRewarderAPI:
 
         self.log("=== [7/8] + [8/8] Mobile app — verifying live counters ===")
         tasks = BingAppTasks(logger=self.log)
-        phone_checkin = self._phone_try("checkin", timeout=90)
+        phone_checkin = self._phone_try("checkin", timeout=45)
         if phone_checkin is not None:
             if phone_checkin.get("ok"):
                 self.log("[7/8] Mobile check-in — completed on the linked phone.")
@@ -3694,7 +3715,7 @@ class AutoRewarderAPI:
                     phone_checkin.get("detail") or "phone job failed",
                 )
             self._notify_progress()
-        phone_news = self._phone_try("news", timeout=120)
+        phone_news = self._phone_try("news", timeout=45)
         if phone_news is not None:
             if phone_news.get("ok"):
                 self.log("[8/8] News — credited on the linked phone.")

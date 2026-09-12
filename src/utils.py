@@ -6,7 +6,42 @@ import time
 import random
 import requests
 
-from .config import GITHUB_VERSION, REPO
+from .config import APP_DIR, GITHUB_VERSION, REPO
+
+
+def _gui_lock_path():
+    return os.path.join(APP_DIR, "gui.lock")
+
+
+def write_gui_lock():
+    path = _gui_lock_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(str(os.getpid()))
+
+
+def clear_gui_lock():
+    try:
+        os.remove(_gui_lock_path())
+    except OSError:
+        pass
+
+
+def gui_instance_running():
+    path = _gui_lock_path()
+    if not os.path.isfile(path):
+        return False
+    try:
+        pid = int(open(path, encoding="utf-8").read().strip())
+    except (OSError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def _github_is_newer(latest, current):

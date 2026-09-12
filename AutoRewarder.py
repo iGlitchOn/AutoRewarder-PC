@@ -86,6 +86,12 @@ if __name__ == "__main__":
     from src.config import GUI_DIR, ASSETS_DIR
 
     api = AutoRewarderAPI()
+    try:
+        from src.utils import write_gui_lock
+
+        write_gui_lock()
+    except Exception as e:
+        _boot_log("gui lock failed " + str(e))
     if args.from_login:
         api.enable_login_autorun()
     window = webview.create_window(

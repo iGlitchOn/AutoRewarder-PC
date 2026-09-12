@@ -359,6 +359,14 @@ def main():
     )
     args = parser.parse_args()
 
+    from src.utils import gui_instance_running
+
+    if gui_instance_running():
+        console_log(
+            "GUI is open; skipping this scheduled run so Edge profiles are not shared."
+        )
+        return
+
     if args.pc is not None and args.pc < 0:
         parser.error("--pc must be >= 0")
     if args.mobile is not None and args.mobile < 0:

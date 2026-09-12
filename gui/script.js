@@ -387,10 +387,10 @@ function start_bot() {
   update_status_indicator('executing');
   pywebview.api.set_queries_counts(pc, mobile).then(function (ok) {
     if (!ok) show_toast('Could not save query counts.', 'warning');
-    return pywebview.api.main(pc, mobile, false);
-  }).then(function (started) {
-    if (started === false) {
-      show_toast('A run is already in progress.', 'warning');
+    return pywebview.api.start_run(pc, mobile, false);
+  }).then(function (result) {
+    if (result && result.started === false) {
+      show_toast((result && result.message) || 'A run is already in progress.', 'warning');
       enable_start_button();
     }
   }).catch(function (err) {
@@ -411,9 +411,9 @@ function start_tasks_only() {
 
   set_running_ui(true);
   update_log('Starting remaining daily tasks only…');
-  pywebview.api.main(0, 0, true).then(function (started) {
-    if (started === false) {
-      show_toast('A run is already in progress.', 'warning');
+  pywebview.api.start_run(0, 0, true).then(function (result) {
+    if (result && result.started === false) {
+      show_toast((result && result.message) || 'A run is already in progress.', 'warning');
       enable_start_button();
     }
   }).catch(function (err) {
@@ -1459,6 +1459,7 @@ function start_loader() {
   clearInterval(loaderInterval);
 
   driverWarmingUp = true;
+  const startedAt = Date.now();
   if (!runInProgress) {
     const startBtn = document.getElementById('start_btn');
     if (startBtn) {
@@ -1471,6 +1472,10 @@ function start_loader() {
   }
 
   const tryShowLoader = () => {
+    if (Date.now() - startedAt > 60000) {
+      stop_loader();
+      return;
+    }
     pywebview.api.check_driver_status().then(isLoading => {
       if (isLoading === true && !document.getElementById('inline_loader')) {
         const logDiv = document.getElementById('log_area');

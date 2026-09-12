@@ -25,6 +25,7 @@ BRIDGE_PORT = 38471
 BEACON_PORT = 38472
 PROTOCOL_VERSION = 2
 PHONE_JOB_KINDS = frozenset(("checkin", "news"))
+PHONE_ONLINE_SEC = 900
 
 
 def wire_protocol(value):
@@ -127,9 +128,13 @@ class PhoneBridge:
         handler = self._make_handler()
         try:
             self._httpd = ThreadingHTTPServer(("0.0.0.0", self.port), handler)
-        except OSError:
-            self._httpd = ThreadingHTTPServer(("0.0.0.0", 0), handler)
-            self.port = self._httpd.server_address[1]
+        except OSError as e:
+            print(
+                f"[WARNING] Phone bridge port {self.port} is busy ({e}). "
+                "LAN pairing needs that port free."
+            )
+            self._httpd = None
+            return
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
         threading.Thread(target=self._beacon_loop, daemon=True).start()
@@ -328,7 +333,7 @@ class PhoneBridge:
         kind = str(kind or "")
         if kind not in PHONE_JOB_KINDS:
             return None
-        if not self._online_phones():
+        if not self.phones_for_jobs():
             return None
         job_id = uuid.uuid4().hex[:12]
         event = threading.Event()
@@ -358,6 +363,7 @@ class PhoneBridge:
                     job["ok"] = False
                     job["result"] = "timeout"
                     job["event"].set()
+            self._prune_jobs()
             return {"ok": False, "detail": "timeout", "status": "expired"}
         return {
             "ok": bool(job.get("ok")),
@@ -381,8 +387,29 @@ class PhoneBridge:
         return [
             p
             for p in self.api.account_meta.get_phones()
-            if (now - float(p.get("last_seen_ts") or 0)) < 45
+            if (now - float(p.get("last_seen_ts") or 0)) < PHONE_ONLINE_SEC
         ]
+
+    def phones_for_jobs(self):
+        """Phones that can still take a job (recent heartbeat, or a stored token)."""
+        online = self._online_phones()
+        if online:
+            return online
+        if self.api.account_meta is None:
+            return []
+        return [p for p in self.api.account_meta.get_phones() if p.get("token")]
+
+    def _prune_jobs(self):
+        now = time.time()
+        with self._lock:
+            dead = [
+                job_id
+                for job_id, job in self._jobs.items()
+                if now - float(job.get("created") or 0) > 600
+                or job.get("status") == "expired"
+            ]
+            for job_id in dead:
+                self._jobs.pop(job_id, None)
 
     # -- internals ----------------------------------------------------------
 
@@ -601,9 +628,10 @@ class PhoneBridge:
                     if not phone:
                         return self._json(401, {"ok": False, "error": "auth"})
                     bridge._touch(phone)
+                    bridge._prune_jobs()
                     pending = []
                     with bridge._lock:
-                        for job in bridge._jobs.values():
+                        for job in list(bridge._jobs.values()):
                             if job["status"] == "queued":
                                 job["status"] = "sent"
                                 pending.append(
@@ -818,12 +846,13 @@ class PhoneBridge:
                 if path == "/pc/run":
                     block = bridge.api.start_block_reason()
                     if block:
-                        return self._json(400, block)
+                        code = 409 if block.get("error") == "already_running" else 400
+                        return self._json(code, block)
                     mode = str(body.get("mode") or "tasks")
                     threading.Thread(
                         target=bridge._run_pc, args=(mode,), daemon=True
                     ).start()
-                    return self._json(200, {"ok": True, "mode": mode})
+                    return self._json(200, {"ok": True, "mode": mode, "started": True})
                 if path == "/pc/queries":
                     try:
                         if body.get("pc") is not None:
@@ -949,7 +978,11 @@ class PhoneBridge:
             else:
                 self.api.main(0, 0, True)
         except Exception as e:
-            print(f"[WARNING] Phone-triggered PC run failed: {e}")
+            print(f"[ERROR] Phone-triggered PC run failed: {e}")
+            try:
+                self.api._safe_log(f"[ERROR] Phone-triggered PC run failed: {e}")
+            except Exception:
+                pass
 
 
 _bridge = None
