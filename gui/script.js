@@ -252,7 +252,6 @@ function download_custom_update() {
   if (window.pywebview && pywebview.api && typeof pywebview.api.open_link === 'function') {
     pywebview.api.open_link(_custom_update_url);
   }
-  cancel_custom_update();
 }
 
 function show_update_notice(result, manual) {
@@ -280,6 +279,8 @@ function show_update_notice(result, manual) {
     }
     setTimeout(cancel_custom_update, 4000);
     if (original) update_log('También hay una actualización del repositorio original para notificar al desarrollador.');
+  } else {
+    cancel_custom_update();
   }
   return result;
 }

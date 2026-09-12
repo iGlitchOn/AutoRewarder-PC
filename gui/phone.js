@@ -14,6 +14,7 @@ const state = {
   pendingJob: null,
   pendingPhoneUpdate: null,
   phoneUpdateCheckRunning: false,
+  phoneUpdateDownloading: false,
   originalUpdateNotified: false,
   restored: false,
 };
@@ -893,19 +894,27 @@ function setUpdateBanner(msg, warn) {
 }
 
 function cancelPhoneUpdate() {
+  state.phoneUpdateDownloading = false;
   state.pendingPhoneUpdate = null;
+  try {
+    const n = native();
+    if (n && n.cancelDownloadUpdate) n.cancelDownloadUpdate();
+  } catch (e) {}
   setUpdateBanner("");
 }
 
 function downloadPhoneUpdate() {
   const update = state.pendingPhoneUpdate;
-  if (!update || !update.download_url) return;
+  if (!update || !update.download_url || state.phoneUpdateDownloading) return;
+  state.phoneUpdateDownloading = true;
   setUpdateBanner(update.source === "pc" ? "Descargando la actualización desde el PC…" : "Descargando la actualización desde GitHub…");
+  const download = document.getElementById("update_download_btn");
+  if (download) download.disabled = true;
   const n = native();
   if (n && n.downloadUpdate) {
     n.downloadUpdate(update.download_url);
-    state.pendingPhoneUpdate = null;
   } else {
+    state.phoneUpdateDownloading = false;
     setUpdateBanner("Esta versión no puede descargar el APK automáticamente.", true);
   }
 }
@@ -949,26 +958,33 @@ async function _pcPhoneUpdate() {
 }
 
 async function _githubPhoneRelease(repo) {
-  const url = "https://api.github.com/repos/" + repo + "/releases/latest";
-  let text = httpRaw("GET", url, null, "");
-  if (text == null) text = await fetchRaw("GET", url, null, "");
-  const data = JSON.parse(text || "{}");
-  if (data && data.message && !data.tag_name) throw new Error("github");
-  if (!data || !data.tag_name) return null;
-  const assets = Array.isArray(data.assets) ? data.assets : [];
-  const apk = assets.find(function (item) {
-    return String(item.name || "").toLowerCase().endsWith(".apk");
-  });
-  return {
-    repo: repo,
-    tag: data.tag_name,
-    url: data.html_url || ("https://github.com/" + repo + "/releases/latest"),
-    download_url: apk ? apk.browser_download_url : "",
-  };
+  try {
+    const url = "https://api.github.com/repos/" + repo + "/releases/latest";
+    let text = httpRaw("GET", url, null, "");
+    if (text == null) text = await fetchRaw("GET", url, null, "");
+    const data = JSON.parse(text || "{}");
+    if (data && data.ok === false && !data.tag_name) {
+      return { error: data.error || "github", repo: repo };
+    }
+    if (data && data.message && !data.tag_name) return { error: "github", repo: repo };
+    if (!data || !data.tag_name) return { error: "no_tag", repo: repo };
+    const assets = Array.isArray(data.assets) ? data.assets : [];
+    const apk = assets.find(function (item) {
+      return String(item.name || "").toLowerCase().endsWith(".apk");
+    });
+    return {
+      repo: repo,
+      tag: data.tag_name,
+      url: data.html_url || ("https://github.com/" + repo + "/releases/latest"),
+      download_url: apk ? apk.browser_download_url : "",
+    };
+  } catch (e) {
+    return { error: "network", repo: repo };
+  }
 }
 
 async function checkPhoneUpdate(manual) {
-  if (state.phoneUpdateCheckRunning) return;
+  if (state.phoneUpdateCheckRunning || state.phoneUpdateDownloading) return;
   state.phoneUpdateCheckRunning = true;
   const watchdog = setTimeout(function () { state.phoneUpdateCheckRunning = false; }, 25000);
   const button = document.getElementById("updates_btn");
@@ -979,32 +995,39 @@ async function checkPhoneUpdate(manual) {
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
-    if (original && _phoneReleaseNewer(original.tag, "4.3") && !state.originalUpdateNotified) {
+    const customFailed = !!(custom && custom.error);
+    if (original && original.tag && _phoneReleaseNewer(original.tag, "4.3") && !state.originalUpdateNotified) {
       state.originalUpdateNotified = true;
       log("Hay una nueva versión del repositorio original (" + original.tag + "). Notifica al desarrollador; no se instalará.");
     }
     if (pcUpdate && _phoneReleaseNewer(pcUpdate.tag, mine)) {
       state.pendingPhoneUpdate = pcUpdate;
       setUpdateBanner("Nueva actualización del PC " + pcUpdate.tag + ". ¿Quieres descargarla?");
-    } else if (custom && _phoneReleaseNewer(custom.tag, mine)) {
+    } else if (custom && custom.tag && _phoneReleaseNewer(custom.tag, mine)) {
       state.pendingPhoneUpdate = custom;
       if (custom.download_url) {
         setUpdateBanner("Nueva actualización propia " + custom.tag + ". ¿Quieres descargarla?");
       } else {
         setUpdateBanner("Nueva versión propia " + custom.tag + ", pero todavía no hay un APK adjunto.", true);
-        const download = document.getElementById("update_download_btn");
-        if (download) download.disabled = true;
       }
     } else if (manual) {
       state.pendingPhoneUpdate = null;
-      setUpdateBanner("No hay una actualización propia disponible.");
-      setTimeout(function () { if (!state.pendingPhoneUpdate) setUpdateBanner(""); }, 4000);
-    } else if (!custom || !_phoneReleaseNewer(custom.tag, mine)) {
+      if (customFailed) {
+        setUpdateBanner("No se pudo comprobar GitHub.", true);
+      } else {
+        setUpdateBanner("No hay una actualización propia disponible.");
+        setTimeout(function () { if (!state.pendingPhoneUpdate) setUpdateBanner(""); }, 4000);
+      }
+    } else {
       state.pendingPhoneUpdate = null;
       setUpdateBanner("");
     }
   } catch (e) {
     if (manual) setUpdateBanner("No se pudo comprobar GitHub.", true);
+    else {
+      state.pendingPhoneUpdate = null;
+      setUpdateBanner("");
+    }
   } finally {
     clearTimeout(watchdog);
     state.phoneUpdateCheckRunning = false;
@@ -1019,10 +1042,13 @@ window.onNativeReady = function () {
 };
 
 window.onUpdateReady = function () {
+  state.phoneUpdateDownloading = false;
+  state.pendingPhoneUpdate = null;
   setUpdateBanner("Instala la actualización. La sesión se conserva.");
 };
 
 window.onUpdateFailed = function (msg) {
+  state.phoneUpdateDownloading = false;
   setUpdateBanner(msg || "No se pudo actualizar.", true);
 };
 
