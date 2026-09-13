@@ -367,7 +367,12 @@ def main():
     )
     args = parser.parse_args()
 
-    from src.utils import gui_instance_running
+    if args.pc is not None and args.pc < 0:
+        parser.error("--pc must be >= 0")
+    if args.mobile is not None and args.mobile < 0:
+        parser.error("--mobile must be >= 0")
+
+    from src.utils import HeadlessRunLock, gui_instance_running
 
     if gui_instance_running():
         console_log(
@@ -375,40 +380,43 @@ def main():
         )
         return
 
-    if args.pc is not None and args.pc < 0:
-        parser.error("--pc must be >= 0")
-    if args.mobile is not None and args.mobile < 0:
-        parser.error("--mobile must be >= 0")
-
-    api = _create_headless_api()
-
-    accounts = api.account_manager.list()
-    if not accounts:
-        console_log("No accounts configured. Nothing to do.")
-        return
-
-    if args.account:
-        acc = _resolve_account(api, args.account)
-        if acc is None:
-            console_log(f"[ERROR] No account matches '{args.account}'.")
-            return
-        _run_account(
-            api,
-            acc,
-            pc_override=args.pc,
-            mobile_override=args.mobile,
-            force=args.force,
+    run_lock = HeadlessRunLock()
+    # Other schtasks at the same hour wait instead of killing each other's Edge.
+    if not run_lock.acquire(wait_s=4 * 3600):
+        console_log(
+            "Another headless AutoRewarder is still running. Giving up this trigger."
         )
         return
+    try:
+        api = _create_headless_api()
 
-    # Default: iterate every enabled schedule. api._run_lock ensures only one
-    # run executes at a time inside the process.
-    ran_any = False
-    for acc in accounts:
-        if _run_account(api, acc, force=args.force):
-            ran_any = True
-    if not ran_any:
-        console_log("No schedules matched today.")
+        accounts = api.account_manager.list()
+        if not accounts:
+            console_log("No accounts configured. Nothing to do.")
+            return
+
+        if args.account:
+            acc = _resolve_account(api, args.account)
+            if acc is None:
+                console_log(f"[ERROR] No account matches '{args.account}'.")
+                return
+            _run_account(
+                api,
+                acc,
+                pc_override=args.pc,
+                mobile_override=args.mobile,
+                force=args.force,
+            )
+            return
+
+        ran_any = False
+        for acc in accounts:
+            if _run_account(api, acc, force=args.force):
+                ran_any = True
+        if not ran_any:
+            console_log("No schedules matched today.")
+    finally:
+        run_lock.release()
 
 
 if __name__ == "__main__":

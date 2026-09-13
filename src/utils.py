@@ -27,6 +27,66 @@ def clear_gui_lock():
         pass
 
 
+class HeadlessRunLock:
+    """One headless AutoRewarder at a time so schtasks cannot share Edge."""
+
+    def __init__(self, path=None):
+        self.path = path or os.path.join(APP_DIR, "headless.run.lock")
+        self._fh = None
+
+    def acquire(self, wait_s=0):
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+        deadline = time.time() + max(0, float(wait_s or 0))
+        while True:
+            fh = open(self.path, "a+b")
+            try:
+                fh.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fh.seek(0)
+                fh.truncate()
+                fh.write(str(os.getpid()).encode("ascii"))
+                fh.flush()
+                self._fh = fh
+                return True
+            except OSError:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+                if time.time() >= deadline:
+                    return False
+                time.sleep(5)
+
+    def release(self):
+        fh = self._fh
+        self._fh = None
+        if fh is None:
+            return
+        try:
+            fh.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            fh.close()
+        except Exception:
+            pass
+
+
 def gui_instance_running():
     path = _gui_lock_path()
     if not os.path.isfile(path):

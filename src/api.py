@@ -1045,12 +1045,6 @@ class AutoRewarderAPI:
         except Exception:
             pass
         try:
-            from .emulator.driver import DriverManager
-
-            DriverManager.kill_all_autorewarder_edge(wait=True)
-        except Exception:
-            pass
-        try:
             from .phone_bridge import get_bridge
 
             bridge = get_bridge()

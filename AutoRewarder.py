@@ -158,12 +158,6 @@ if __name__ == "__main__":
             except Exception:
                 pass
             try:
-                from src.emulator.driver import DriverManager
-
-                DriverManager.kill_all_autorewarder_edge(wait=False)
-            except Exception:
-                pass
-            try:
                 app_window.hide()
             except Exception:
                 pass

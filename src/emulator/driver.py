@@ -555,8 +555,11 @@ class DriverManager:
         return "msedge"
 
     def debug_port(self):
-        seed = os.path.abspath(self.profile_path or "edge")
-        return 19222 + (abs(hash(seed)) % 700)
+        seed = os.path.abspath(self.profile_path or "edge").encode("utf-8")
+        n = 0
+        for byte in seed:
+            n = (n * 33 + byte) & 0xFFFFFFFF
+        return 19222 + (n % 700)
 
     def start_native_edge(self, url, port=None, stop_event=None, hide=False):
         """
