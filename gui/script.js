@@ -536,8 +536,13 @@ function show_history() {
 }
 
 function show_stats() {
-  if (!window.pywebview || !pywebview.api || !pywebview.api.open_stats_window) return;
-  pywebview.api.open_stats_window();
+  if (!window.pywebview || !pywebview.api || !pywebview.api.open_stats_window) {
+    show_toast('Stats are not available.', 'error');
+    return;
+  }
+  Promise.resolve(pywebview.api.open_stats_window()).catch(function () {
+    show_toast('Could not open stats.', 'error');
+  });
 }
 
 /**
@@ -613,6 +618,8 @@ function refresh_stats_ui() {
     }
   }).catch(function (err) {
     console.error('refresh_stats_ui failed:', err);
+    if (totalEl) totalEl.textContent = '—';
+    if (sessionEl) sessionEl.textContent = '—';
   });
 }
 
@@ -679,12 +686,7 @@ function set_hide_browser_toggle_enabled(enabled) {
 }
 
 function hideBrowserToggle() {
-  const toggle = document.getElementById('hideBrowserToggle');
-  if (!toggle) return;
-  const hidden = Boolean(toggle.checked);
-  pywebview.api.set_hide_browser(hidden).then(() => {
-    show_toast(hidden ? 'Hide browser on. Saved.' : 'Hide browser off. Saved.', 'success');
-  }).catch(err => console.error('set_hide_browser failed:', err));
+  // Preview only. Persist happens in save_settings so Cancel can revert.
 }
 
 // =========================================================================
@@ -751,6 +753,8 @@ function render_account_menu() {
         if (acc.id !== currentAccountId) {
           pywebview.api.switch_account(acc.id).then(ok => {
             if (!ok) show_toast('Could not switch account. Is the bot running?', 'warning');
+          }).catch(function () {
+            show_toast('Could not switch account.', 'error');
           });
         }
       });
@@ -969,6 +973,11 @@ function open_settings_modal() {
 function close_settings_modal() {
   const backdrop = document.getElementById('settings_modal');
   if (backdrop) backdrop.hidden = true;
+  if (!window.pywebview || !pywebview.api || !pywebview.api.get_settings) return;
+  pywebview.api.get_settings().then(function (settings) {
+    const toggle = document.getElementById('hideBrowserToggle');
+    if (toggle) toggle.checked = Boolean(settings && settings.hide_browser);
+  }).catch(function () {});
 }
 
 // Dim + disable the LLM config fields when the feature is toggled off.
@@ -1694,7 +1703,9 @@ function switch_app_tab(name) {
 
 function refresh_manual_tasks() {
   if (!window.pywebview || !pywebview.api || !pywebview.api.get_manual_tasks) return;
-  pywebview.api.get_manual_tasks().then(render_manual_tasks).catch(function () {});
+  pywebview.api.get_manual_tasks().then(render_manual_tasks).catch(function () {
+    show_toast('Could not load For you tasks.', 'error');
+  });
 }
 
 function render_manual_tasks(data) {
@@ -1764,7 +1775,9 @@ function _manual_row(task, isIgnored) {
     un.className = 'ghost-link';
     un.textContent = 'Unignore';
     un.onclick = function () {
-      pywebview.api.ignore_manual_task(task.id, false).then(render_manual_tasks);
+      pywebview.api.ignore_manual_task(task.id, false).then(render_manual_tasks).catch(function () {
+        show_toast('Could not update this task.', 'error');
+      });
     };
     actions.appendChild(un);
   } else {
@@ -1773,7 +1786,9 @@ function _manual_row(task, isIgnored) {
     ign.className = 'ghost-link';
     ign.textContent = 'Ignore';
     ign.onclick = function () {
-      pywebview.api.ignore_manual_task(task.id, true).then(render_manual_tasks);
+      pywebview.api.ignore_manual_task(task.id, true).then(render_manual_tasks).catch(function () {
+        show_toast('Could not ignore this task.', 'error');
+      });
     };
     actions.appendChild(ign);
     const rm = document.createElement('button');
@@ -1781,13 +1796,24 @@ function _manual_row(task, isIgnored) {
     rm.className = 'ghost-link danger-link';
     rm.textContent = 'Remove';
     rm.onclick = function () {
-      pywebview.api.remove_manual_task(task.id).then(render_manual_tasks);
+      pywebview.api.remove_manual_task(task.id).then(render_manual_tasks).catch(function () {
+        show_toast('Could not remove this task.', 'error');
+      });
     };
     actions.appendChild(rm);
   }
   row.appendChild(body);
   row.appendChild(actions);
   return row;
+}
+
+function open_kick() {
+  try {
+    if (window.pywebview && pywebview.api && typeof pywebview.api.open_link === 'function') {
+      pywebview.api.open_link('https://kick.com/iGlitchOff');
+    }
+  } catch (e) {}
+  return false;
 }
 
 function copy_activity_log() {

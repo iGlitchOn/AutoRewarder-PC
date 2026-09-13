@@ -60,7 +60,10 @@ function render_accounts_section(accounts) {
       );
       if (newLabel === null) return;
       const trimmed = String(newLabel).trim();
-      if (!trimmed) return;
+      if (!trimmed) {
+        show_toast('Name cannot be empty.', 'warning');
+        return;
+      }
       renameBtn.disabled = true;
       pywebview.api.rename_account(acc.id, trimmed).then(ok => {
         if (!ok) show_toast('Rename failed.', 'error');

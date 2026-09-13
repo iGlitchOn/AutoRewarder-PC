@@ -813,18 +813,36 @@ function ensureBingSetup(justPaired) {
 function installBingApp() {
   log("Abriendo Play Store para instalar Bing…");
   state.waitingBingInstall = true;
+  let ok = true;
   try {
-    if (native() && native().installBing) native().installBing();
-  } catch (e) {}
+    if (native() && native().installBing) ok = native().installBing() !== false;
+  } catch (e) {
+    ok = false;
+  }
+  if (!ok) {
+    state.waitingBingInstall = false;
+    log("No se pudo abrir Play Store.");
+    setBingBanner("No se pudo abrir Play Store.", true);
+    return;
+  }
   setBingBanner("Instala Bing y vuelve a AutoRewarder. La UI se actualiza sola.", true);
 }
 
 function loginBingApp() {
   log("Abriendo Bing para iniciar sesión…");
   state.waitingBingLogin = true;
+  let ok = true;
   try {
-    if (native() && native().openBingApp) native().openBingApp("login");
-  } catch (e) {}
+    if (native() && native().openBingApp) ok = native().openBingApp("login") !== false;
+  } catch (e) {
+    ok = false;
+  }
+  if (!ok) {
+    state.waitingBingLogin = false;
+    log("No se pudo abrir Bing.");
+    setBingBanner("No se pudo abrir Bing.", true);
+    return;
+  }
   setBingBanner("Inicia sesión en Bing con la misma cuenta Microsoft, luego vuelve.", true);
 }
 
@@ -1056,7 +1074,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.14") : "4.3.14";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.15") : "4.3.15";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
