@@ -26,6 +26,7 @@ BEACON_PORT = 38472
 PROTOCOL_VERSION = 2
 PHONE_JOB_KINDS = frozenset(("checkin", "news"))
 PHONE_ONLINE_SEC = 900
+PC_RUN_MODES = frozenset(("start", "tasks", "edge"))
 
 
 class _BridgeServer(ThreadingHTTPServer):
@@ -517,8 +518,10 @@ class PhoneBridge:
                 msg = f"AR2|{url}|-|reconnect|0".encode("utf-8")
             try:
                 sock.sendto(msg, ("255.255.255.255", BEACON_PORT))
-            except Exception:
-                pass
+            except Exception as e:
+                if not getattr(self, "_beacon_warned", False):
+                    self._beacon_warned = True
+                    print(f"[WARNING] Phone beacon UDP failed: {e}")
             self._beacon_stop.wait(2.0)
         sock.close()
 
@@ -957,6 +960,16 @@ class PhoneBridge:
                         code = 409 if block.get("error") == "already_running" else 400
                         return self._json(code, block)
                     mode = str(body.get("mode") or "tasks")
+                    if mode not in PC_RUN_MODES:
+                        return self._json(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "unknown_mode",
+                                "mode": mode,
+                                "message": "Ese modo no existe en este PC.",
+                            },
+                        )
                     threading.Thread(
                         target=bridge._run_pc, args=(mode,), daemon=True
                     ).start()

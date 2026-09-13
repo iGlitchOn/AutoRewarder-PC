@@ -165,6 +165,7 @@ function isPcAppError(data) {
     no_account: 1,
     busy: 1,
     unknown_job: 1,
+    unknown_mode: 1,
     protocol: 1,
     already_done: 1,
   };
@@ -260,8 +261,31 @@ function showPair() {
   document.getElementById("main_screen").hidden = true;
 }
 
-window.onBeaconRaw = function (msg) {
+function parseAr2(msg) {
   const parts = String(msg || "").split("|");
+  if (parts[0] !== "AR2" || parts.length < 3) return null;
+  if (parts.length >= 5) {
+    return {
+      url: parts.slice(1, parts.length - 3).join("|"),
+      code: parts[parts.length - 3] || "",
+      sig: parts[parts.length - 2] || "",
+      until: Number(parts[parts.length - 1] || 0),
+    };
+  }
+  return { url: parts[1], code: parts[2] || "", sig: parts[3] || "", until: 0 };
+}
+
+window.onBeaconRaw = function (msg) {
+  const raw = String(msg || "");
+  const parts = raw.split("|");
+  const tag = parts[0] || "";
+  const ver = Number(String(tag).replace(/^AR/i, ""));
+  if (tag.indexOf("AR") === 0 && isFinite(ver) && ver > 2) {
+    log("Este PC usa un beacon más nuevo (AR" + ver + "). Actualiza AutoRewarder Mobile.");
+    const status = document.getElementById("pair_status");
+    if (status) status.textContent = "Este PC es más nuevo. Actualiza AutoRewarder en el celular.";
+    return;
+  }
   if (parts[0] === "AR1" && parts.length >= 4) {
     const ip = parts[1];
     const port = parts[2];
@@ -271,15 +295,10 @@ window.onBeaconRaw = function (msg) {
     applyFound({ url: url, code: code, sig: "" });
     return;
   }
-  if (parts[0] !== "AR2" || parts.length < 3) return;
-  const until = parts.length >= 5 ? Number(parts[4] || 0) : 0;
-  if (until && until * 1000 < Date.now() - 30000) return;
-  applyFound({
-    url: parts[1],
-    code: parts[2],
-    sig: parts[3] || "",
-    until: until || 0,
-  });
+  const found = parseAr2(raw);
+  if (!found) return;
+  if (found.until && found.until * 1000 < Date.now() - 30000) return;
+  applyFound(found);
 };
 
 function applyFound(found, fromScan) {
@@ -316,7 +335,7 @@ function parsePairText(text) {
     if (codeEl) codeEl.value = text;
     return { code: text };
   }
-  if (text.indexOf("AR1|") === 0 || text.indexOf("AR2|") === 0) {
+  if (/^AR\d+\|/.test(text)) {
     window.onBeaconRaw(text);
     return state.found || { raw: text };
   }
@@ -1092,7 +1111,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.18") : "4.3.18";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.19") : "4.3.19";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
