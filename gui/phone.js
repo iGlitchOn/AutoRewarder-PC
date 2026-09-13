@@ -161,6 +161,7 @@ function isPcAppError(data) {
     browser_loading: 1,
     bad_code: 1,
     rate_limit: 1,
+    expired: 1,
     no_account: 1,
     busy: 1,
     unknown_job: 1,
@@ -472,6 +473,8 @@ async function doPair() {
         status.textContent = data.message || "No hay cuenta Microsoft seleccionada en el PC.";
       } else if (data.error === "rate_limit") {
         status.textContent = "Demasiados intentos. Espera un minuto y usa el código nuevo del PC.";
+      } else if (data.error === "expired") {
+        status.textContent = data.message || "Ese código ya caducó. En el PC abre Account → Vincular un celular otra vez.";
       } else if (data.error === "protocol") {
         status.textContent = data.message || "Actualiza AutoRewarder en el PC.";
       } else {
@@ -1089,7 +1092,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.16") : "4.3.16";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.18") : "4.3.18";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");

@@ -129,6 +129,7 @@ class PhoneBridge:
     def start(self):
         if self._thread and self._thread.is_alive():
             return
+        self._beacon_stop.clear()
         handler = self._make_handler()
         self._httpd = None
         for attempt in range(3):
@@ -150,6 +151,7 @@ class PhoneBridge:
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
         threading.Thread(target=self._beacon_loop, daemon=True).start()
+        threading.Thread(target=self._watch_http, daemon=True).start()
         threading.Thread(target=self._open_firewall, daemon=True).start()
         try:
             from .tunnel import PhoneTunnel
@@ -313,7 +315,73 @@ class PhoneBridge:
     def cancel_pairing(self):
         self._pair_code = None
         self._pair_until = 0
+        self._valid_codes = []
+        self._pair_replay = None
         return self.info()
+
+    def _pair_expired(self, code):
+        """True when this exact 6-digit code was issued and its TTL lapsed."""
+        code = str(code or "").strip()
+        if not code:
+            return False
+        now = time.time()
+        if self._pair_code and code == str(self._pair_code) and now > self._pair_until:
+            return True
+        for prev, until in self._valid_codes:
+            if prev == code and now > float(until):
+                return True
+        replay = self._pair_replay
+        if (
+            replay
+            and replay.get("code") == code
+            and now >= float(replay.get("until") or 0)
+        ):
+            return True
+        return False
+
+    def _pair_client_key(self, handler):
+        """Rate-limit key. Tunnel traffic arrives as 127.0.0.1 from cloudflared."""
+        ip = handler.client_address[0] if handler.client_address else "?"
+        if ip in ("127.0.0.1", "::1"):
+            headers = getattr(handler, "headers", None)
+            fwd = ""
+            if headers is not None:
+                fwd = (
+                    headers.get("CF-Connecting-IP")
+                    or headers.get("X-Forwarded-For")
+                    or ""
+                )
+            fwd = str(fwd).split(",")[0].strip()
+            return "tun:" + fwd if fwd else "tun:loopback"
+        return ip
+
+    def _pair_rate_limited(self, ip):
+        now = time.time()
+        self._pair_fails = {
+            key: val
+            for key, val in self._pair_fails.items()
+            if now - float(val[1] or 0) < 120
+        }
+        fails, last = self._pair_fails.get(ip, (0, 0))
+        if now - float(last or 0) >= 120:
+            self._pair_fails.pop(ip, None)
+            return False
+        return fails >= 8
+
+    def _watch_http(self):
+        while not self._beacon_stop.wait(5):
+            if self._httpd is None:
+                continue
+            if self._thread and self._thread.is_alive():
+                continue
+            print("[WARNING] Phone bridge HTTP thread died. Restarting.")
+            try:
+                self._thread = threading.Thread(
+                    target=self._httpd.serve_forever, daemon=True
+                )
+                self._thread.start()
+            except Exception as e:
+                print(f"[WARNING] Phone bridge restart failed: {e}")
 
     def unlink(self, phone_id):
         if self.api.account_meta is None:
@@ -344,10 +412,18 @@ class PhoneBridge:
         kind = str(kind or "")
         if kind not in PHONE_JOB_KINDS:
             return None
-        if not self.phones_for_jobs():
+        candidates = self.phones_for_jobs()
+        if not candidates:
             return None
         job_id = uuid.uuid4().hex[:12]
         event = threading.Event()
+        phones = []
+        if isinstance(candidates, (list, tuple)):
+            phones = sorted(
+                candidates,
+                key=lambda p: float((p or {}).get("last_seen_ts") or 0),
+                reverse=True,
+            )
         job = {
             "id": job_id,
             "kind": kind,
@@ -357,6 +433,7 @@ class PhoneBridge:
             "result": "",
             "created": time.time(),
             "event": event,
+            "phone_id": str((phones[0].get("id") if phones else "") or ""),
         }
         with self._lock:
             self._jobs[job_id] = job
@@ -641,17 +718,24 @@ class PhoneBridge:
                     bridge._touch(phone)
                     bridge._prune_jobs()
                     pending = []
+                    pid = str(phone.get("id") or "")
                     with bridge._lock:
                         for job in list(bridge._jobs.values()):
-                            if job["status"] == "queued":
-                                job["status"] = "sent"
-                                pending.append(
-                                    {
-                                        "id": job["id"],
-                                        "kind": job["kind"],
-                                        "detail": job.get("detail") or "",
-                                    }
-                                )
+                            if job["status"] != "queued":
+                                continue
+                            owner = str(job.get("phone_id") or "")
+                            if owner and pid and owner != pid:
+                                continue
+                            job["status"] = "sent"
+                            if pid:
+                                job["phone_id"] = pid
+                            pending.append(
+                                {
+                                    "id": job["id"],
+                                    "kind": job["kind"],
+                                    "detail": job.get("detail") or "",
+                                }
+                            )
                     return self._json(200, {"ok": True, "jobs": pending})
                 if path == "/overview":
                     if not phone:
@@ -720,10 +804,10 @@ class PhoneBridge:
                         ).start()
                     return self._json(200, {"ok": True, "removed": bool(removed)})
                 if path == "/pair":
-                    ip = self.client_address[0] if self.client_address else "?"
-                    fails, last = bridge._pair_fails.get(ip, (0, 0))
-                    if fails >= 8 and time.time() - last < 120:
+                    ip = bridge._pair_client_key(self)
+                    if bridge._pair_rate_limited(ip):
                         return self._json(429, {"ok": False, "error": "rate_limit"})
+                    fails, last = bridge._pair_fails.get(ip, (0, 0))
                     code = str(body.get("code") or "").strip()
                     sig = str(body.get("sig") or "").strip()
                     url = str(body.get("url") or "").strip()
@@ -743,12 +827,23 @@ class PhoneBridge:
                     if verdict == "replay":
                         return self._json(200, bridge._pair_replay["payload"])
                     if not verdict:
+                        if last and time.time() - float(last) >= 120:
+                            fails = 0
                         bridge._pair_fails[ip] = (fails + 1, time.time())
                         print(
                             f"Pair rejected from {ip}: code={code!r} "
                             f"active={bridge._pair_code!r} "
                             f"until={int(bridge._pair_until)}"
                         )
+                        if bridge._pair_expired(code):
+                            return self._json(
+                                400,
+                                {
+                                    "ok": False,
+                                    "error": "expired",
+                                    "message": "Ese código ya caducó. En el PC abre Account → Vincular un celular y usa el código nuevo.",
+                                },
+                            )
                         return self._json(
                             400,
                             {
@@ -905,17 +1000,21 @@ class PhoneBridge:
                         f"{'ok' if ok else 'fail'} {detail}"
                     )
                     if event_completes_job(kind, detail):
+                        pid = str(phone.get("id") or "")
                         with bridge._lock:
                             for job in bridge._jobs.values():
-                                if job.get("kind") == kind and job.get("status") in (
-                                    "queued",
-                                    "sent",
-                                ):
-                                    job["status"] = "done"
-                                    job["ok"] = ok
-                                    job["result"] = detail or "phone event"
-                                    job["event"].set()
-                                    break
+                                if job.get("kind") != kind:
+                                    continue
+                                if job.get("status") not in ("queued", "sent"):
+                                    continue
+                                owner = str(job.get("phone_id") or "")
+                                if owner and pid and owner != pid:
+                                    continue
+                                job["status"] = "done"
+                                job["ok"] = ok
+                                job["result"] = detail or "phone event"
+                                job["event"].set()
+                                break
                     threading.Thread(
                         target=bridge._notify_ui,
                         args=(kind, ok, detail),
