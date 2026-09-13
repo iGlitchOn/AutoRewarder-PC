@@ -344,7 +344,7 @@ def _run_account(api, acc, pc_override=None, mobile_override=None, force=False):
     if ok and pc_override is None and mobile_override is None:
         _mark_triggered_today(aid)
 
-    return True
+    return bool(ok)
 
 
 def main():

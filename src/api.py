@@ -283,6 +283,23 @@ class AutoRewarderAPI:
                 "kind": "browser",
                 "message": "Wait for the browser to finish loading.",
             }
+        try:
+            if self.account_meta is not None:
+                sched = self.account_meta.get_schedule() or {}
+                if (
+                    sched.get("last_triggered_date")
+                    == datetime.now().date().isoformat()
+                ):
+                    work = self._remaining_work()
+                    if not work.get("pending"):
+                        return {
+                            "ok": False,
+                            "error": "already_done",
+                            "kind": "run",
+                            "message": "Already completed today.",
+                        }
+        except Exception:
+            pass
         return None
 
     def _login_command(self):
@@ -328,6 +345,14 @@ class AutoRewarderAPI:
         settings = self.global_settings.get_settings()
         pc_target = max(0, int(settings.get("queries_pc") or 0))
         mobile_target = max(0, int(settings.get("queries_mobile") or 0))
+        if self.account_meta is not None:
+            try:
+                sched = self.account_meta.get_schedule() or {}
+                if sched.get("enabled"):
+                    pc_target = max(0, int(sched.get("queries_pc") or 0))
+                    mobile_target = max(0, int(sched.get("queries_mobile") or 0))
+            except Exception:
+                pass
         today = datetime.now().date().isoformat()
         bucket = {}
         if self.stats is not None:
@@ -395,28 +420,45 @@ class AutoRewarderAPI:
             while self.is_driver_loading and waited < 90:
                 time.sleep(0.4)
                 waited += 0.4
-            current = self.account_manager.get_current()
-            if not current or not current.get("first_setup_done"):
+            accounts = [
+                acc
+                for acc in (self.account_manager.list() or [])
+                if acc.get("first_setup_done")
+            ]
+            if not accounts:
                 self.log("Sign-in run: no ready account. Closing.")
                 self._quit_after_login()
                 return
-            work = self._remaining_work()
-            if not work["pending"]:
+            ran = False
+            for acc in accounts:
+                if self._manual_stop_requested:
+                    break
+                try:
+                    self.account_manager.select(acc["id"])
+                    self._rebuild_account_context()
+                except Exception as e:
+                    self.log(f"[WARNING] Sign-in skip '{acc.get('label')}': {e}")
+                    continue
+                work = self._remaining_work()
+                if not work.get("pending"):
+                    continue
+                ran = True
+                self.log(
+                    "Sign-in run: leftover for '"
+                    + str(acc.get("label") or acc["id"])
+                    + "' ("
+                    + ", ".join(work["reasons"])
+                    + ")."
+                )
+                try:
+                    if self._webview_window:
+                        self._webview_window.evaluate_js("set_running_ui(true)")
+                except Exception:
+                    pass
+                daily_only = work["pc"] == 0 and work["mobile"] == 0
+                self.main(work["pc"], work["mobile"], daily_only)
+            if not ran:
                 self.log("Sign-in run: nothing left today. Closing.")
-                self._quit_after_login()
-                return
-            self.log(
-                "Sign-in run: starting leftover work ("
-                + ", ".join(work["reasons"])
-                + ")."
-            )
-            try:
-                if self._webview_window:
-                    self._webview_window.evaluate_js("set_running_ui(true)")
-            except Exception:
-                pass
-            daily_only = work["pc"] == 0 and work["mobile"] == 0
-            self.main(work["pc"], work["mobile"], daily_only)
         except Exception as e:
             self.log(f"[ERROR] Sign-in run failed: {e}")
         if not self._manual_stop_requested:
@@ -952,6 +994,20 @@ class AutoRewarderAPI:
             payload = dict(reason)
             payload["started"] = False
             return payload
+        try:
+            if self.account_meta is not None:
+                sched = self.account_meta.get_schedule() or {}
+                if (
+                    sched.get("last_triggered_date")
+                    == datetime.now().date().isoformat()
+                ):
+                    leftover = self._remaining_work()
+                    if leftover.get("pending"):
+                        pc_count = leftover["pc"]
+                        mobile_count = leftover["mobile"]
+                        daily_only = leftover["pc"] == 0 and leftover["mobile"] == 0
+        except Exception:
+            pass
         threading.Thread(
             target=self.main,
             args=(pc_count, mobile_count, daily_only),
@@ -1153,8 +1209,7 @@ class AutoRewarderAPI:
                 0, min(99, int(_pick("queries_mobile", current["queries_mobile"])))
             ),
             "run_time": _normalize_run_time(_pick("run_time", current.get("run_time"))),
-            # Reset the daily-dedup marker so the edited schedule can still fire today.
-            "last_triggered_date": None,
+            "last_triggered_date": current.get("last_triggered_date"),
         }
         meta.set_schedule(new)
 
@@ -1605,7 +1660,7 @@ class AutoRewarderAPI:
             "    <Enabled>true</Enabled>\n"
             "    <Hidden>false</Hidden>\n"
             "    <RunOnlyIfIdle>false</RunOnlyIfIdle>\n"
-            "    <WakeToRun>false</WakeToRun>\n"
+            "    <WakeToRun>true</WakeToRun>\n"
             "    <ExecutionTimeLimit>PT72H</ExecutionTimeLimit>\n"
             "    <Priority>7</Priority>\n"
             "  </Settings>\n"

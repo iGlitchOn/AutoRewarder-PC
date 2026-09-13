@@ -165,6 +165,7 @@ function isPcAppError(data) {
     busy: 1,
     unknown_job: 1,
     protocol: 1,
+    already_done: 1,
   };
   return !!known[data.error];
 }
@@ -1055,7 +1056,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.13") : "4.3.13";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.14") : "4.3.14";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
