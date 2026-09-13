@@ -1210,6 +1210,8 @@ class AutoRewarderAPI:
             ),
             "run_time": _normalize_run_time(_pick("run_time", current.get("run_time"))),
             "last_triggered_date": current.get("last_triggered_date"),
+            "last_attempt_date": current.get("last_attempt_date"),
+            "last_success_date": current.get("last_success_date"),
         }
         meta.set_schedule(new)
 
@@ -3302,6 +3304,16 @@ class AutoRewarderAPI:
 
         seq = self._run_seq
         self._stop_event.clear()
+        if stamp_schedule and self.account_meta is not None:
+            try:
+                from datetime import date as _date
+
+                attempt = self.account_meta.get_schedule() or {}
+                if isinstance(attempt, dict):
+                    attempt["last_attempt_date"] = _date.today().isoformat()
+                    self.account_meta.set_schedule(attempt)
+            except Exception:
+                pass
         if seq != self._run_seq:
             try:
                 self._run_lock.release()
@@ -3406,9 +3418,9 @@ class AutoRewarderAPI:
 
                         current_schedule = self.account_meta.get_schedule()
                         if isinstance(current_schedule, dict):
-                            current_schedule["last_triggered_date"] = (
-                                date.today().isoformat()
-                            )
+                            today = date.today().isoformat()
+                            current_schedule["last_triggered_date"] = today
+                            current_schedule["last_success_date"] = today
                             self.account_meta.set_schedule(current_schedule)
                     except Exception as e:
                         self.log(f"[WARNING] Failed to update deduplication date: {e}")

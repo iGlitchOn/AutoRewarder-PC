@@ -685,6 +685,11 @@ function handleJob(job) {
   }
   state.pendingJob = job;
   log("PC job: " + kind);
+  const banner = document.getElementById("job_banner");
+  if (banner) {
+    banner.hidden = false;
+    banner.textContent = "PC job: " + kind;
+  }
   runPhone(kind);
 }
 
@@ -697,6 +702,11 @@ async function finishPending(ok, detail) {
     } catch (e) {}
   }
   state.pendingJob = null;
+  const banner = document.getElementById("job_banner");
+  if (banner) {
+    banner.hidden = true;
+    banner.textContent = "";
+  }
   log(ok ? (detail || "Listo") : (detail || "No terminó"));
 }
 
@@ -909,14 +919,19 @@ window.onAppResume = function () {
     loginBingApp();
   } else if (state.waitingBingLogin) {
     state.waitingBingLogin = false;
-    state.bingReady = true;
-    persist();
-    log("Sesión de Bing lista. Ya puedes hacer check-in y noticias.");
-    setBingBanner("Bing lista. Pulsa Check-in o Noticias.");
-    if (state.pendingBingKind) {
-      const kind = state.pendingBingKind;
-      state.pendingBingKind = null;
-      runPhone(kind);
+    if (hadBing) {
+      state.bingReady = true;
+      persist();
+      log("Sesión de Bing lista. Ya puedes hacer check-in y noticias.");
+      setBingBanner("Bing lista. Pulsa Check-in o Noticias.");
+      if (state.pendingBingKind) {
+        const kind = state.pendingBingKind;
+        state.pendingBingKind = null;
+        runPhone(kind);
+      }
+    } else {
+      log("Volviste, pero Bing no está instalada.");
+      setBingBanner("Instala Bing para continuar.", true);
     }
   } else if (state.pendingVerify) {
     const kind = state.pendingVerify;
@@ -1074,7 +1089,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.15") : "4.3.15";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.16") : "4.3.16";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");

@@ -243,7 +243,17 @@ def _mark_triggered_today(account_id):
     """
     meta = AccountMetaManager(account_id)
     sched = meta.get_schedule()
-    sched["last_triggered_date"] = date.today().isoformat()
+    today = date.today().isoformat()
+    sched["last_triggered_date"] = today
+    sched["last_success_date"] = today
+    meta.set_schedule(sched)
+
+
+def _mark_attempt_today(account_id):
+    """Record that a run started. Does not skip later retries today."""
+    meta = AccountMetaManager(account_id)
+    sched = meta.get_schedule()
+    sched["last_attempt_date"] = date.today().isoformat()
     meta.set_schedule(sched)
 
 
@@ -313,6 +323,8 @@ def _run_account(api, acc, pc_override=None, mobile_override=None, force=False):
             api.search_engine._logger = console_log
         if api.stats is not None:
             api.stats._logger = console_log
+
+    _mark_attempt_today(aid)
 
     ok = False
     try:
