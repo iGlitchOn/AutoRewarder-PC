@@ -28,6 +28,10 @@ PHONE_JOB_KINDS = frozenset(("checkin", "news"))
 PHONE_ONLINE_SEC = 900
 
 
+class _BridgeServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
 def wire_protocol(value):
     """Protocol the peer speaks. Missing/invalid means AR2 (all 4.3.x)."""
     if value is None or value == "":
@@ -129,7 +133,7 @@ class PhoneBridge:
         self._httpd = None
         for attempt in range(3):
             try:
-                self._httpd = ThreadingHTTPServer(("0.0.0.0", self.port), handler)
+                self._httpd = _BridgeServer(("0.0.0.0", self.port), handler)
                 break
             except OSError as e:
                 print(
@@ -169,6 +173,14 @@ class PhoneBridge:
                 self._httpd.shutdown()
             except Exception:
                 pass
+            try:
+                self._httpd.server_close()
+            except Exception:
+                pass
+        if self._thread:
+            self._thread.join(timeout=2)
+        self._thread = None
+        self._httpd = None
 
     def info(self):
         phones = []
@@ -315,25 +327,16 @@ class PhoneBridge:
         """Drop a stored phone after uninstall/reinstall (no token left)."""
         if self.api.account_meta is None:
             return ""
-        android_id = str(android_id or "").strip()
-        name = str(name or "").strip()
-        model = str(model or "").strip()
-        if not android_id and not name and not model:
+        phone = match_existing_phone(
+            self.api.account_meta.get_phones(),
+            android_id=android_id,
+            name=name,
+            model=model,
+        )
+        if not phone:
             return ""
-        removed = ""
-        for phone in list(self.api.account_meta.get_phones()):
-            match = False
-            if android_id and str(phone.get("android_id") or "") == android_id:
-                match = True
-            elif not phone.get("android_id") and (
-                (name and phone.get("name") == name)
-                or (model and phone.get("model") == model)
-            ):
-                match = True
-            if match:
-                removed = phone.get("name") or phone.get("id") or "Phone"
-                self.api.account_meta.remove_phone(phone.get("id"))
-                break
+        removed = phone.get("name") or phone.get("id") or "Phone"
+        self.api.account_meta.remove_phone(phone.get("id"))
         return removed
 
     def enqueue(self, kind, detail=""):
@@ -837,6 +840,8 @@ class PhoneBridge:
                             return self._json(
                                 404, {"ok": False, "error": "unknown_job"}
                             )
+                        if job.get("status") == "expired":
+                            return self._json(200, {"ok": True, "status": "expired"})
                         job["status"] = "done"
                         job["ok"] = bool(body.get("ok"))
                         job["result"] = str(body.get("detail") or "")
