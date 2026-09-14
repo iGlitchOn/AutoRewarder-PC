@@ -1043,7 +1043,7 @@ function downloadPhoneUpdate() {
   if (download) download.disabled = true;
   const n = native();
   if (n && n.downloadUpdate) {
-    n.downloadUpdate(update.download_url);
+    n.downloadUpdate(update.download_url, update.digest || "");
   } else {
     state.phoneUpdateDownloading = false;
     setUpdateBanner("Esta versión no puede descargar el APK automáticamente.", true);
@@ -1064,6 +1064,13 @@ function _phoneReleaseNewer(latest, current) {
   return false;
 }
 
+function _phoneCodeNewer(remote, mine) {
+  remote = Number(remote || 0);
+  mine = Number(mine || 0);
+  if (!(remote > 0) || !(mine > 0)) return null;
+  return remote > mine;
+}
+
 async function _pcPhoneUpdate() {
   const urls = bases();
   for (let i = 0; i < urls.length; i++) {
@@ -1082,6 +1089,9 @@ async function _pcPhoneUpdate() {
         url: path,
         download_url: path,
         source: "pc",
+        versionCode: Number(data.versionCode || 0),
+        digest: String(data.digest || ""),
+        size: Number(data.size || 0),
       };
     } catch (e) {}
   }
@@ -1108,6 +1118,8 @@ async function _githubPhoneRelease(repo) {
       tag: data.tag_name,
       url: data.html_url || ("https://github.com/" + repo + "/releases/latest"),
       download_url: apk ? apk.browser_download_url : "",
+      digest: apk ? String(apk.digest || "") : "",
+      size: apk ? Number(apk.size || 0) : 0,
     };
   } catch (e) {
     return { error: "network", repo: repo };
@@ -1122,7 +1134,14 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.20") : "4.3.20";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.22") : "4.3.22";
+    const mineCode = n && n.appVersionCode ? Number(n.appVersionCode() || 0) : 0;
+    const newerThanMine = function (update) {
+      if (!update) return false;
+      const byCode = _phoneCodeNewer(update.versionCode, mineCode);
+      if (byCode != null) return byCode;
+      return !!(update.tag && _phoneReleaseNewer(update.tag, mine));
+    };
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
@@ -1131,7 +1150,7 @@ async function checkPhoneUpdate(manual) {
       state.originalUpdateNotified = true;
       log("Hay una nueva versión del repositorio original (" + original.tag + "). Notifica al desarrollador; no se instalará.");
     }
-    if (pcUpdate && _phoneReleaseNewer(pcUpdate.tag, mine)) {
+    if (pcUpdate && newerThanMine(pcUpdate)) {
       state.pendingPhoneUpdate = pcUpdate;
       setUpdateBanner("Nueva actualización del PC " + pcUpdate.tag + ". ¿Quieres descargarla?");
     } else if (custom && custom.tag && _phoneReleaseNewer(custom.tag, mine)) {

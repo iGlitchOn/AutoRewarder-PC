@@ -7,6 +7,7 @@ Flow:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -15,8 +16,8 @@ import urllib.request
 
 from .config import APP_DIR, BASE_DIR
 
-PHONE_VERSION_CODE = 33
-PHONE_VERSION_NAME = "4.3.20"
+PHONE_VERSION_CODE = 34
+PHONE_VERSION_NAME = "4.3.22"
 MOBILE_REPO = "iGlitchOn/AutoRewarder-Mobile"
 
 
@@ -28,6 +29,17 @@ def updates_dir():
 
 def apk_path():
     return os.path.join(updates_dir(), "AutoRewarder.apk")
+
+
+def apk_digest(path=None):
+    target = path or apk_path()
+    if not os.path.isfile(target):
+        return ""
+    hasher = hashlib.sha256()
+    with open(target, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return "sha256:" + hasher.hexdigest()
 
 
 def manifest_path():
@@ -51,6 +63,7 @@ def write_manifest(extra=None):
         "versionCode": PHONE_VERSION_CODE,
         "versionName": PHONE_VERSION_NAME,
         "size": os.path.getsize(apk_path()) if os.path.isfile(apk_path()) else 0,
+        "digest": apk_digest(),
     }
     if extra:
         data.update(extra)
@@ -172,10 +185,14 @@ def update_payload():
     info = read_manifest()
     if not os.path.isfile(apk_path()):
         info = publish_local()
+    digest = str(info.get("digest") or "")
+    if os.path.isfile(apk_path()) and not digest:
+        digest = apk_digest()
     return {
         "ok": True,
         "versionCode": int(info.get("versionCode") or PHONE_VERSION_CODE),
         "versionName": str(info.get("versionName") or PHONE_VERSION_NAME),
         "size": int(info.get("size") or 0),
+        "digest": digest,
         "apk": "/update/apk",
     }
