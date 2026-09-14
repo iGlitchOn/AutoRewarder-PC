@@ -69,6 +69,7 @@ def _lan_ip():
     ip = "127.0.0.1"
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        sock.settimeout(2)
         sock.connect(("8.8.8.8", 80))
         ip = sock.getsockname()[0]
     except Exception:
@@ -799,6 +800,13 @@ class PhoneBridge:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, fmt, *args):
                 return
+
+            def setup(self):
+                super().setup()
+                try:
+                    self.connection.settimeout(120)
+                except Exception:
+                    pass
 
             def _send_apk(self):
                 try:

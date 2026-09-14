@@ -367,7 +367,30 @@ class DriverManager:
             _driver.set_script_timeout(20)
         except Exception:
             pass
+        self._apply_command_timeout(_driver, 30)
         return _driver
+
+    @staticmethod
+    def _apply_command_timeout(driver, seconds=30):
+        """Cap the Selenium HTTP wire so a frozen Edge cannot hang find/click."""
+        try:
+            executor = getattr(driver, "command_executor", None)
+            if executor is None:
+                return
+            if hasattr(executor, "set_timeout"):
+                executor.set_timeout(seconds)
+            if hasattr(executor, "_timeout"):
+                executor._timeout = seconds
+            cfg = getattr(executor, "_client_config", None) or getattr(
+                executor, "client_config", None
+            )
+            if cfg is None:
+                return
+            for attr in ("timeout", "read_timeout"):
+                if hasattr(cfg, attr):
+                    setattr(cfg, attr, seconds)
+        except Exception:
+            pass
 
     def _remember_debug_port(self, port):
         try:

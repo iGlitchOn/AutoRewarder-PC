@@ -1318,6 +1318,7 @@ class AutoRewarderAPI:
                 result = subprocess.run(
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
+                    timeout=20,
                     creationflags=0x08000000,
                 )
                 if result.returncode == 0:
@@ -1529,6 +1530,7 @@ class AutoRewarderAPI:
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
                     text=True,
+                    timeout=20,
                     creationflags=0x08000000,
                 )
                 if q.returncode == 0:
@@ -1542,6 +1544,7 @@ class AutoRewarderAPI:
                         ],
                         capture_output=True,
                         text=True,
+                        timeout=20,
                         creationflags=0x08000000,
                     )
                     if d.returncode == 0:
@@ -1580,6 +1583,7 @@ class AutoRewarderAPI:
                             f"{_SYSTEMD_UNIT_NAME}.timer",
                         ],
                         capture_output=True,
+                        timeout=20,
                     )
                 except Exception:
                     pass
@@ -1597,6 +1601,7 @@ class AutoRewarderAPI:
                     subprocess.run(
                         ["systemctl", "--user", "daemon-reload"],
                         capture_output=True,
+                        timeout=20,
                     )
                 except Exception:
                     pass
@@ -1731,6 +1736,7 @@ class AutoRewarderAPI:
                 ],
                 capture_output=True,
                 text=True,
+                timeout=20,
                 creationflags=0x08000000,
             )
             if result.returncode != 0:
@@ -1767,6 +1773,7 @@ class AutoRewarderAPI:
                     "/F",
                 ],
                 capture_output=True,
+                timeout=20,
                 creationflags=0x08000000,
             )
             return True
@@ -1808,12 +1815,15 @@ class AutoRewarderAPI:
                 fh.write(timer_file)
 
             subprocess.run(
-                ["systemctl", "--user", "daemon-reload"], capture_output=True
+                ["systemctl", "--user", "daemon-reload"],
+                capture_output=True,
+                timeout=20,
             )
             result = subprocess.run(
                 ["systemctl", "--user", "enable", "--now", timer_unit],
                 capture_output=True,
                 text=True,
+                timeout=20,
             )
             if result.returncode != 0:
                 self.log(
@@ -1842,6 +1852,7 @@ class AutoRewarderAPI:
             subprocess.run(
                 ["systemctl", "--user", "disable", "--now", timer_unit],
                 capture_output=True,
+                timeout=20,
             )
             for path in (service_path, timer_path):
                 if os.path.exists(path):
@@ -1850,7 +1861,9 @@ class AutoRewarderAPI:
                     except OSError:
                         pass
             subprocess.run(
-                ["systemctl", "--user", "daemon-reload"], capture_output=True
+                ["systemctl", "--user", "daemon-reload"],
+                capture_output=True,
+                timeout=20,
             )
             return True
         except Exception:
