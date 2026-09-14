@@ -454,6 +454,7 @@
         if (isManual) {
           const sub = document.getElementById('total_sub');
           if (sub) sub.textContent = 'Refresh failed.';
+          if (typeof show_toast === 'function') show_toast('Could not refresh the balance.', 'error');
         }
       }).then(function () {
         set_refresh_busy(false);

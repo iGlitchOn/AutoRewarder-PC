@@ -553,7 +553,13 @@ function update_status_indicator(forceState) {
 }
 
 function show_history() {
-  pywebview.api.open_history_window();
+  if (!window.pywebview || !pywebview.api || !pywebview.api.open_history_window) {
+    show_toast('History is not available.', 'error');
+    return;
+  }
+  Promise.resolve(pywebview.api.open_history_window()).catch(function () {
+    show_toast('Could not open history.', 'error');
+  });
 }
 
 function show_stats() {
@@ -847,7 +853,13 @@ function render_account_trigger() {
 // Account creation
 // =========================================================================
 
+let accountCreating = false;
+
 async function prompt_and_create_account() {
+  if (accountCreating) {
+    show_toast('An account setup is already in progress.', 'warning');
+    return;
+  }
   const defaultLabel = `Account ${accountsCache.length + 1}`;
   const label = await prompt_modal(
     'Add a new account',
@@ -859,6 +871,7 @@ async function prompt_and_create_account() {
   const trimmed = String(label).trim() || defaultLabel;
 
   show_toast(`Opening browser for "${trimmed}". Log in, then close the window.`, 'info', { duration: 6000 });
+  accountCreating = true;
 
   pywebview.api.create_account(trimmed).then(result => {
     if (!result || !result.ok) {
@@ -877,6 +890,8 @@ async function prompt_and_create_account() {
     console.error('create_account failed:', err);
     show_toast('Could not create account.', 'error');
     refresh_account_ui();
+  }).then(function () {
+    accountCreating = false;
   });
 }
 
@@ -1415,7 +1430,8 @@ async function save_settings() {
     close_settings_modal();
   } catch (err) {
     console.error('save_settings failed:', err);
-    show_toast('Save failed.', 'error');
+    const detail = (err && (err.message || err)) ? String(err.message || err) : '';
+    show_toast(detail ? ('Save failed: ' + detail) : 'Save failed.', 'error');
   }
   } finally {
     if (saveBtn) saveBtn.disabled = false;
@@ -1968,11 +1984,15 @@ function render_phone_device(info) {
         if (ask.disabled) return;
         ask.disabled = true;
         pywebview.api.send_phone_job('checkin').then(function (r) {
-          if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
-          else show_toast('Check-in sent to the phone.', 'success');
+          if (!r || !r.ok) {
+            show_toast((r && r.error) || 'Phone offline', 'warning');
+            ask.disabled = false;
+          } else {
+            show_toast('Check-in sent to the phone.', 'success');
+            refresh_phone_ui();
+          }
         }).catch(function () {
           show_toast('Could not send check-in.', 'error');
-        }).then(function () {
           ask.disabled = false;
         });
       });
@@ -1985,11 +2005,15 @@ function render_phone_device(info) {
         if (news.disabled) return;
         news.disabled = true;
         pywebview.api.send_phone_job('news').then(function (r) {
-          if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
-          else show_toast('Read-to-earn sent to the phone.', 'success');
+          if (!r || !r.ok) {
+            show_toast((r && r.error) || 'Phone offline', 'warning');
+            news.disabled = false;
+          } else {
+            show_toast('Read-to-earn sent to the phone.', 'success');
+            refresh_phone_ui();
+          }
         }).catch(function () {
           show_toast('Could not send news.', 'error');
-        }).then(function () {
           news.disabled = false;
         });
       });
@@ -2090,22 +2114,28 @@ function begin_phone_pairing() {
 function copy_pair_code() {
   const el = document.getElementById('phone_pair_code');
   const code = el ? String(el.textContent || '').replace(/\D/g, '') : '';
-  if (!code || code === '------') return;
+  if (!code || code === '------') {
+    show_toast('No pairing code yet.', 'warning');
+    return;
+  }
   const done = function () { show_toast(t('pair.copied'), 'success'); };
+  const fallback = function () {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      done();
+    } catch (e) {
+      show_toast('Could not copy the code.', 'error');
+    }
+  };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(code).then(done).catch(function () {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = code;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-        done();
-      } catch (e) {
-        show_toast('Could not copy the code.', 'error');
-      }
-    });
+    navigator.clipboard.writeText(code).then(done).catch(fallback);
+  } else {
+    fallback();
   }
 }
 
