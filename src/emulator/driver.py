@@ -1,7 +1,9 @@
 """Edge WebDriver setup for per-account profiles."""
 
+import json
 import os
 import platform
+import shutil
 import socket
 import subprocess
 import time
@@ -33,6 +35,7 @@ class DriverManager:
         self.profile_path = profile_path
         self.hide_browser = hide_browser
         self._native_pids = []
+        self._debug_ports = []
 
     @staticmethod
     def _edge_version():
@@ -76,9 +79,9 @@ class DriverManager:
                     return path
         return None
 
-    def _edge_service(self, verbose=False):
+    def _edge_service(self, verbose=False, force_manager=False):
         kwargs = {}
-        path = self._msedgedriver_path()
+        path = None if force_manager else self._msedgedriver_path()
         if path:
             kwargs["executable_path"] = path
         if verbose:
@@ -102,6 +105,12 @@ class DriverManager:
                 "msedge failed to start",
                 "exited normally",
                 "chrome not reachable",
+                "session not created",
+                "invalid session",
+                "session deleted",
+                "not reachable",
+                "disconnected",
+                "target window already closed",
             )
         )
 
@@ -243,32 +252,47 @@ class DriverManager:
                 options.add_argument("--disable-software-rasterizer")
             return options
 
-        last_err = None
-        _driver = None
-        for attempt in range(3):
-            try:
-                _driver = webdriver.Edge(
-                    service=self._edge_service(verbose=attempt == 2),
-                    options=build_options(recovery_mode=attempt > 0),
-                )
-                last_err = None
-                self._remember_driver_pid(_driver)
-                break
-            except Exception as err:
-                last_err = err
-                self.close_running_edge()
-                self._clear_profile_locks()
-                if self._session_died(err):
-                    try:
-                        _driver = self._attach_fallback(hide=headless)
-                        last_err = None
-                        self._remember_driver_pid(_driver)
-                        break
-                    except Exception as attach_err:
-                        last_err = attach_err
-                        self.close_running_edge()
-                        self._clear_profile_locks()
-                time.sleep(1.2 + attempt)
+        def try_launch():
+            last_err = None
+            launched = None
+            for attempt in range(3):
+                try:
+                    stale_driver = (
+                        last_err is not None
+                        and "session not created" in str(last_err).lower()
+                    )
+                    launched = webdriver.Edge(
+                        service=self._edge_service(
+                            verbose=attempt == 2, force_manager=stale_driver
+                        ),
+                        options=build_options(recovery_mode=attempt > 0),
+                    )
+                    last_err = None
+                    self._remember_driver_pid(launched)
+                    self._remember_driver_port(launched)
+                    break
+                except Exception as err:
+                    last_err = err
+                    self.close_running_edge()
+                    self._clear_profile_locks()
+                    if self._session_died(err):
+                        try:
+                            launched = self._attach_fallback(hide=headless)
+                            last_err = None
+                            self._remember_driver_pid(launched)
+                            self._remember_driver_port(launched)
+                            break
+                        except Exception as attach_err:
+                            last_err = attach_err
+                            self.close_running_edge()
+                            self._clear_profile_locks()
+                    time.sleep(1.2 + attempt)
+            return launched, last_err
+
+        _driver, last_err = try_launch()
+        if _driver is None and self._profile_json_corrupt():
+            self._reset_corrupt_profile()
+            _driver, last_err = try_launch()
         if _driver is None:
             raise last_err
 
@@ -344,6 +368,72 @@ class DriverManager:
             pass
         return _driver
 
+    def _remember_debug_port(self, port):
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            return
+        ports = list(getattr(self, "_debug_ports", []) or [])
+        if port not in ports:
+            ports.append(port)
+        self._debug_ports = ports
+
+    def _remember_driver_port(self, driver):
+        caps = getattr(driver, "capabilities", None) or {}
+        for key in ("ms:edgeOptions", "goog:chromeOptions"):
+            opts = caps.get(key) or {}
+            if not isinstance(opts, dict):
+                continue
+            addr = opts.get("debuggerAddress") or ""
+            if addr and ":" in str(addr):
+                self._remember_debug_port(str(addr).rsplit(":", 1)[-1])
+                return
+
+    def _profile_json_files(self):
+        if not self.profile_path:
+            return []
+        return [
+            os.path.join(self.profile_path, "Local State"),
+            os.path.join(self.profile_path, "Default", "Preferences"),
+        ]
+
+    def _profile_json_corrupt(self):
+        """True when Chromium JSON for this account exists but does not parse."""
+        for path in self._profile_json_files():
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    json.load(handle)
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+                return True
+        return False
+
+    def _reset_corrupt_profile(self):
+        """Move a broken EdgeProfile aside and start a fresh folder for this account."""
+        if not self.profile_path:
+            return False
+        self.close_running_edge()
+        src = os.path.abspath(self.profile_path)
+        bak = src + ".bak"
+        try:
+            if os.path.isdir(bak) or os.path.isfile(bak):
+                shutil.rmtree(bak, ignore_errors=True)
+                try:
+                    os.remove(bak)
+                except OSError:
+                    pass
+            if os.path.isdir(src):
+                os.replace(src, bak)
+            os.makedirs(src, exist_ok=True)
+            return True
+        except OSError:
+            try:
+                os.makedirs(src, exist_ok=True)
+            except OSError:
+                pass
+            return False
+
     def _clear_profile_locks(self):
         """Drop Chromium singleton lock files left by a killed Edge process."""
         if not self.profile_path:
@@ -365,7 +455,7 @@ class DriverManager:
     _KILL_FLAGS = 0x08000000 | 0x01000000 | 0x00000200
 
     @staticmethod
-    def _edge_kill_powershell(profile=None, all_accounts=False):
+    def _edge_kill_powershell(profile=None, all_accounts=False, ports=None):
         # Only AutoRewarder account profiles — never every msedgedriver on the machine.
         needles = []
         if profile:
@@ -378,16 +468,24 @@ class DriverManager:
                     "EdgeProfile",
                 ]
             )
-        if not needles:
+        port_list = []
+        for port in ports or []:
+            try:
+                port_list.append(str(int(port)))
+            except (TypeError, ValueError):
+                pass
+        if not needles and not port_list:
             needles = ["AutoRewarder\\accounts", "AutoRewarder/accounts"]
         lines = [
             "$needles = @("
             + ", ".join("'" + n.replace("'", "''") + "'" for n in needles)
             + ")",
+            "$ports = @(" + ", ".join(port_list) + ")",
             "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" -ErrorAction SilentlyContinue |",
             "  Where-Object {",
             "    $cl = $_.CommandLine; if (-not $cl) { return $false }",
-            "    foreach ($n in $needles) { if ($cl -like ('*' + $n + '*')) { return $true } }",
+            "    foreach ($n in $needles) { if ($n -and $cl -like ('*' + $n + '*')) { return $true } }",
+            "    foreach ($p in $ports) { if ($cl -like ('*--remote-debugging-port=' + $p + '*')) { return $true } }",
             "    return $false",
             "  } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
         ]
@@ -451,7 +549,9 @@ class DriverManager:
             profile = ""
             if self.profile_path:
                 profile = os.path.abspath(self.profile_path)
-            command = self._edge_kill_powershell(profile=profile)
+            command = self._edge_kill_powershell(
+                profile=profile, ports=getattr(self, "_debug_ports", []) or []
+            )
             self._run_kill(
                 [
                     "powershell.exe",
@@ -507,37 +607,28 @@ class DriverManager:
         flags = 0x08000000
         self._kill_tracked_drivers(wait=True)
 
-        if self.profile_path:
-            profile = os.path.abspath(self.profile_path).replace("'", "''")
-            # Kill: (1) Edge bound to this account profile, (2) any Selenium-
-            # launched Edge (compat-relaunch orphans often drop --user-data-dir
-            # from the command line).
-            command = (
-                f"$profile = '{profile}'; "
-                "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
-                "-ErrorAction SilentlyContinue | "
-                "Where-Object { "
-                '$_.CommandLine -like "*$profile*" '
-                "} | "
-                "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
-                "-ErrorAction SilentlyContinue }"
+        profile = os.path.abspath(self.profile_path) if self.profile_path else None
+        # Kill Edge bound to this account path, plus orphans that dropped
+        # --user-data-dir but kept this session's remote-debugging-port.
+        command = self._edge_kill_powershell(
+            profile=profile, ports=getattr(self, "_debug_ports", []) or []
+        )
+        try:
+            subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=4,
+                creationflags=flags,
             )
-            try:
-                subprocess.run(
-                    [
-                        "powershell.exe",
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        command,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=4,
-                    creationflags=flags,
-                )
-            except Exception:
-                pass
+        except Exception:
+            pass
         self._clear_profile_locks()
         if settle:
             time.sleep(0.35)
@@ -609,6 +700,7 @@ class DriverManager:
             self._native_pids.append(proc.pid)
         except Exception:
             pass
+        self._remember_debug_port(port)
         if wait_or_stop(1.5, stop_event):
             try:
                 proc.kill()
@@ -625,7 +717,10 @@ class DriverManager:
             options.binary_location = binary
         options.add_experimental_option("debuggerAddress", f"127.0.0.1:{int(port)}")
         options.add_argument("--edge-skip-compat-layer-relaunch")
-        return webdriver.Edge(service=self._edge_service(), options=options)
+        attached = webdriver.Edge(service=self._edge_service(), options=options)
+        self._remember_debug_port(port)
+        self._remember_driver_port(attached)
+        return attached
 
     @staticmethod
     def focus_edge_window():

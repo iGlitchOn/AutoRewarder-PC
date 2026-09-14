@@ -201,7 +201,6 @@ class SearchEngine:
         next_coffee_break = self.get_coffee_break_count()
         searches_since_break = 0
         successful = 0
-        consecutive_dead = 0
 
         self._log(f"Loaded {len(queries)} queries. Starting searches...")
         self._log(f"Next coffee break after {next_coffee_break} searches.")
@@ -379,12 +378,10 @@ class SearchEngine:
                 if got_timeout and not self._has_search_results(driver):
                     self._log(f"[ERROR] Search #{i + 1} timed out with no results.")
                     self._add_to_history(f"Search: {query}", "[ERROR] Timed out")
-                    consecutive_dead = 0
                     continue
 
                 # Add to history.json
                 self._add_to_history(f"Search: {query}", "Success")
-                consecutive_dead = 0
                 successful += 1
                 if callable(on_success):
                     try:
@@ -407,14 +404,10 @@ class SearchEngine:
                     f"Search: {query}", f"[ERROR] WebDriver Error: {short_error}"
                 )
                 if self._session_dead(e):
-                    consecutive_dead += 1
-                    if consecutive_dead >= 2:
-                        self._log(
-                            "[ERROR] Edge session is dead. Aborting remaining searches."
-                        )
-                        raise
-                else:
-                    consecutive_dead = 0
+                    self._log(
+                        "[ERROR] Edge session is dead. Aborting remaining searches."
+                    )
+                    raise
 
             except Exception as e:
                 if stop_event is not None and stop_event.is_set():
@@ -427,14 +420,9 @@ class SearchEngine:
         return successful
 
     def _session_dead(self, err):
-        msg = str(err or "").lower()
-        return (
-            "invalid session" in msg
-            or "not reachable" in msg
-            or "disconnected" in msg
-            or "session deleted" in msg
-            or "target window already closed" in msg
-        )
+        from ..emulator.driver import DriverManager
+
+        return DriverManager._session_died(err)
 
     def _has_search_results(self, driver):
         try:
