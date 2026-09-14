@@ -2,7 +2,7 @@
 
 AutoRewarder PC es la aplicación de Windows que centraliza las búsquedas y tareas de Microsoft Rewards desde una interfaz gráfica. También puede coordinarse con la aplicación móvil para enviar comandos, consultar el estado del teléfono y ejecutar las búsquedas móviles disponibles.
 
-> Versión documentada: **4.3.20**<br>
+> Versión documentada: **4.3.21**<br>
 > Este repositorio: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)<br>
 > **Fork de** [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder)
 

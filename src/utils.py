@@ -181,11 +181,46 @@ def github_latest_release(repo, logger=None):
             "url": data.get("html_url") or f"https://github.com/{repo}/releases/latest",
             "download_url": file_url,
             "asset_name": (asset or {}).get("name") or "",
+            "digest": str((asset or {}).get("digest") or ""),
+            "size": (asset or {}).get("size") or 0,
         }
     except Exception as exc:
         if logger:
             logger(f"[WARNING] Could not check GitHub release {repo}: {exc}")
         return {"ok": False, "error": "network", "repo": repo}
+
+
+def http_url_is_live(url, timeout=8):
+    """True when url is http(s) and GitHub still has the file."""
+    url = str(url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return False
+    headers = {
+        "User-Agent": "AutoRewarder-App",
+        "Accept": "application/octet-stream",
+    }
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    try:
+        response = requests.head(
+            url, headers=headers, timeout=timeout, allow_redirects=True
+        )
+        if response.status_code == 405:
+            response = requests.get(
+                url,
+                headers=headers,
+                timeout=timeout,
+                stream=True,
+                allow_redirects=True,
+            )
+            try:
+                return response.status_code in (200, 206)
+            finally:
+                response.close()
+        return response.status_code in (200, 206)
+    except Exception:
+        return False
 
 
 def wait_or_stop(seconds, stop_event=None):

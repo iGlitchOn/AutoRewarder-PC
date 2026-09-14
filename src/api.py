@@ -30,7 +30,12 @@ from .config import (
     status_path,
     stats_path,
 )
-from .utils import github_latest_release, release_is_newer, wait_or_stop
+from .utils import (
+    github_latest_release,
+    http_url_is_live,
+    release_is_newer,
+    wait_or_stop,
+)
 from .accounts import (
     AccountManager,
     AccountMetaManager,
@@ -739,7 +744,21 @@ class AutoRewarderAPI:
 
     def open_link(self, url):
         """Open a URL in the system default browser."""
+        url = str(url or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            return False
         webbrowser.open(url)
+        return True
+
+    def open_update_asset(self, url):
+        """Open the installer only if GitHub still has the file."""
+        url = str(url or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            return {"ok": False, "error": "bad_url"}
+        if not http_url_is_live(url):
+            return {"ok": False, "error": "missing"}
+        webbrowser.open(url)
+        return {"ok": True}
 
     def load_driver_in_background(self):
         """Warmup the WebDriver download, only if an account is selected."""

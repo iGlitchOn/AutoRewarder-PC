@@ -249,9 +249,30 @@ function cancel_custom_update() {
 
 function download_custom_update() {
   if (!_custom_update_url) return;
-  if (window.pywebview && pywebview.api && typeof pywebview.api.open_link === 'function') {
-    pywebview.api.open_link(_custom_update_url);
+  const url = _custom_update_url;
+  const download = document.getElementById('updates_download_btn');
+  const text = document.getElementById('updates_message');
+  if (download) download.disabled = true;
+  const api = window.pywebview && pywebview.api;
+  const finish = function () {
+    if (download) download.disabled = !_custom_update_url;
+  };
+  if (!api || typeof api.open_update_asset !== 'function') {
+    if (api && typeof api.open_link === 'function') api.open_link(url);
+    finish();
+    return;
   }
+  api.open_update_asset(url).then(function (result) {
+    if (result && result.ok) {
+      if (text) text.textContent = 'El navegador está abriendo el instalador. Cancela cuando termines.';
+    } else {
+      _update_panel('El archivo ya no está en GitHub. Vuelve a Check updates.', '');
+    }
+    finish();
+  }).catch(function () {
+    if (text) text.textContent = 'No se pudo comprobar el archivo en GitHub.';
+    finish();
+  });
 }
 
 function show_update_notice(result, manual) {
