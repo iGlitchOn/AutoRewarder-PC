@@ -8,7 +8,12 @@ a = Analysis(
     ['AutoRewarder.py'],
     pathex=[],
     binaries=[],
-    datas=[('gui', 'gui'), ('assets', 'assets')] + collect_data_files('nlpaug'),
+    datas=[
+        ('gui', 'gui'),
+        ('assets/queries.json', 'assets'),
+        ('assets/icon.ico', 'assets'),
+        ('assets/visual_search_assets', 'assets/visual_search_assets'),
+    ] + collect_data_files('nlpaug'),
     hiddenimports=[
         'selenium.webdriver.edge.webdriver',
         'pystray',
