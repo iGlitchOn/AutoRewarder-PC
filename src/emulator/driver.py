@@ -86,7 +86,8 @@ class DriverManager:
             kwargs["executable_path"] = path
         if verbose:
             try:
-                kwargs["log_output"] = os.path.join(APP_DIR, "msedgedriver.log")
+                log_dir = self.profile_path or APP_DIR
+                kwargs["log_output"] = os.path.join(log_dir, "msedgedriver.log")
                 kwargs["service_args"] = ["--verbose"]
             except Exception:
                 pass

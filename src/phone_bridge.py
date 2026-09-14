@@ -17,7 +17,9 @@ import time
 import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+import urllib.error
+import urllib.request
+from urllib.parse import parse_qs, urlparse
 
 from .config import APP_DIR, CURRENT_VERSION, GUI_DIR
 
@@ -114,6 +116,7 @@ class PhoneBridge:
         self.port = BRIDGE_PORT
         self._httpd = None
         self._thread = None
+        self._peer = None
         self._beacon_stop = threading.Event()
         self._pair_code = None
         self._pair_until = 0.0
@@ -133,17 +136,32 @@ class PhoneBridge:
         self._beacon_stop.clear()
         handler = self._make_handler()
         self._httpd = None
+        self._peer = None
         for attempt in range(3):
             try:
                 self._httpd = _BridgeServer(("0.0.0.0", self.port), handler)
                 break
             except OSError as e:
+                if self._local_bridge_alive():
+                    self._peer = f"http://127.0.0.1:{self.port}"
+                    print(
+                        f"Phone bridge port {self.port} already in use. "
+                        "This process will send phone jobs to the running PC."
+                    )
+                    return
                 print(
                     f"[WARNING] Phone bridge port {self.port} busy "
                     f"(try {attempt + 1}/3): {e}"
                 )
                 time.sleep(2)
         if self._httpd is None:
+            if self._local_bridge_alive():
+                self._peer = f"http://127.0.0.1:{self.port}"
+                print(
+                    f"Phone bridge port {self.port} already in use. "
+                    "This process will send phone jobs to the running PC."
+                )
+                return
             print(
                 f"[WARNING] Phone bridge port {self.port} is busy. "
                 "LAN pairing needs that port free."
@@ -370,6 +388,8 @@ class PhoneBridge:
         return fails >= 8
 
     def _watch_http(self):
+        if getattr(self, "_peer", None):
+            return
         while not self._beacon_stop.wait(5):
             if self._thread and self._thread.is_alive() and self._httpd:
                 continue
@@ -412,12 +432,17 @@ class PhoneBridge:
         self.api.account_meta.remove_phone(phone.get("id"))
         return removed
 
-    def enqueue(self, kind, detail=""):
+    def enqueue(self, kind, detail="", account_id=None):
         """Queue a job for the linked phone. Returns job id or None."""
         kind = str(kind or "")
         if kind not in PHONE_JOB_KINDS:
             return None
-        candidates = self.phones_for_jobs()
+        if getattr(self, "_peer", None):
+            return self._peer_enqueue(kind, detail)
+        if account_id:
+            candidates = self._phones_for_account(account_id)
+        else:
+            candidates = self.phones_for_jobs()
         if not candidates:
             return None
         job_id = uuid.uuid4().hex[:12]
@@ -445,6 +470,8 @@ class PhoneBridge:
         return job_id
 
     def wait_job(self, job_id, timeout=180):
+        if getattr(self, "_peer", None):
+            return self._peer_wait(job_id, timeout)
         job = self._jobs.get(job_id)
         if not job:
             return {"ok": False, "detail": "no job"}
@@ -556,6 +583,187 @@ class PhoneBridge:
         except Exception:
             pass
 
+    def _current_account_id(self):
+        try:
+            return (
+                self.api.account_manager.current_id()
+                if self.api.account_manager
+                else None
+            )
+        except Exception:
+            return None
+
+    def _all_phones_for_account(self, account_id):
+        if not account_id:
+            return []
+        try:
+            if self._current_account_id() == account_id and self.api.account_meta:
+                return self.api.account_meta.get_phones()
+            from .accounts.meta import AccountMetaManager
+
+            return AccountMetaManager(account_id).get_phones()
+        except Exception:
+            return []
+
+    def _phones_for_account(self, account_id):
+        phones = self._all_phones_for_account(account_id)
+        now = time.time()
+        online = [
+            p
+            for p in phones
+            if (now - float(p.get("last_seen_ts") or 0)) < PHONE_ONLINE_SEC
+        ]
+        if online:
+            return online
+        return [p for p in phones if p.get("token")]
+
+    def _iter_account_phones(self):
+        order = []
+        current = self._current_account_id()
+        if current:
+            order.append(current)
+        try:
+            for acc in self.api.account_manager.list() or []:
+                aid = acc.get("id")
+                if aid and aid not in order:
+                    order.append(aid)
+        except Exception:
+            pass
+        if not order and self.api.account_meta is not None:
+            for phone in self.api.account_meta.get_phones():
+                yield current, phone
+            return
+        for aid in order:
+            for phone in self._all_phones_for_account(aid):
+                yield aid, phone
+
+    def _upsert_phone_for_account(self, account_id, phone):
+        clean = {k: v for k, v in dict(phone).items() if k != "_account_id"}
+        try:
+            if self._current_account_id() == account_id and self.api.account_meta:
+                self.api.account_meta.upsert_phone(clean)
+                return
+            from .accounts.meta import AccountMetaManager
+
+            AccountMetaManager(account_id).upsert_phone(clean)
+        except Exception:
+            pass
+
+    def _local_bridge_alive(self):
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{BRIDGE_PORT}/ping", method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=1) as resp:
+                data = json.loads(resp.read().decode() or "{}")
+            return bool(data.get("ok") and data.get("protocol") is not None)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            return False
+
+    def _is_loopback(self, handler):
+        ip = handler.client_address[0] if handler.client_address else ""
+        return ip in ("127.0.0.1", "::1")
+
+    def _internal_ok(self, handler):
+        if not self._is_loopback(handler):
+            return False
+        got = str(handler.headers.get("X-AR-Internal") or "").strip()
+        secret = str(self._pair_secret or "")
+        return bool(got) and bool(secret) and hmac.compare_digest(got, secret)
+
+    def _peer_headers(self):
+        return {
+            "Content-Type": "application/json",
+            "X-AR-Internal": str(self._pair_secret or ""),
+        }
+
+    def _peer_enqueue(self, kind, detail=""):
+        aid = self._current_account_id() or ""
+        payload = json.dumps(
+            {"kind": kind, "detail": detail, "account_id": aid}
+        ).encode()
+        try:
+            req = urllib.request.Request(
+                self._peer + "/internal/job",
+                data=payload,
+                headers=self._peer_headers(),
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode() or "{}")
+            return data.get("id") if data.get("ok") else None
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            return None
+
+    def _peer_wait(self, job_id, timeout=180):
+        deadline = time.time() + float(timeout)
+        last = {"ok": False, "detail": "timeout", "status": "expired"}
+        while time.time() < deadline:
+            try:
+                req = urllib.request.Request(
+                    self._peer + "/internal/job?id=" + str(job_id),
+                    headers=self._peer_headers(),
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read().decode() or "{}")
+                status = str(data.get("status") or "")
+                if status and status not in ("queued", "sent"):
+                    return {
+                        "ok": bool(data.get("ok")),
+                        "detail": data.get("detail") or status,
+                        "status": status,
+                    }
+                if data.get("ok") is False and data.get("error") == "no job":
+                    return {"ok": False, "detail": "no job"}
+                last = {
+                    "ok": bool(data.get("ok")),
+                    "detail": data.get("detail") or status,
+                    "status": status or "queued",
+                }
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                pass
+            time.sleep(0.4)
+        try:
+            payload = json.dumps({"id": job_id, "expire": True}).encode()
+            req = urllib.request.Request(
+                self._peer + "/internal/job",
+                data=payload,
+                headers=self._peer_headers(),
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=3).read()
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            pass
+        return last
+
+    def _internal_job_status(self, job_id):
+        job = self._jobs.get(job_id)
+        if not job:
+            return {"ok": False, "error": "no job"}
+        return {
+            "ok": True,
+            "id": job.get("id"),
+            "status": job.get("status"),
+            "detail": job.get("result") or job.get("status"),
+            "job_ok": job.get("ok"),
+        }
+
+    def _internal_expire_job(self, job_id):
+        job = self._jobs.get(job_id)
+        if not job:
+            return False
+        with self._lock:
+            if job.get("status") in ("queued", "sent"):
+                job["status"] = "expired"
+                job["ok"] = False
+                job["result"] = "timeout"
+                try:
+                    job["event"].set()
+                except Exception:
+                    pass
+        return True
+
     def _account(self):
         return self.api.account_manager.get_current() or {}
 
@@ -565,17 +773,25 @@ class PhoneBridge:
         return self.api.account_meta.get_rewards_profile() or {}
 
     def _auth_phone(self, token):
-        if not token or self.api.account_meta is None:
+        if not token:
             return None
-        for phone in self.api.account_meta.get_phones():
+        for aid, phone in self._iter_account_phones():
             if phone.get("token") == token:
-                return phone
+                found = dict(phone)
+                found["_account_id"] = aid
+                return found
         return None
 
     def _touch(self, phone):
         phone["last_seen"] = datetime.now().isoformat(timespec="seconds")
         phone["last_seen_ts"] = time.time()
-        self.api.account_meta.upsert_phone(phone)
+        aid = phone.get("_account_id") or self._current_account_id()
+        if aid:
+            self._upsert_phone_for_account(aid, phone)
+            return
+        if self.api.account_meta is not None:
+            clean = {k: v for k, v in phone.items() if k != "_account_id"}
+            self.api.account_meta.upsert_phone(clean)
 
     def _make_handler(self):
         bridge = self
@@ -678,6 +894,11 @@ class PhoneBridge:
                             "app": CURRENT_VERSION,
                         },
                     )
+                if path == "/internal/job":
+                    if not bridge._internal_ok(self):
+                        return self._json(403, {"ok": False, "error": "local_only"})
+                    job_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                    return self._json(200, bridge._internal_job_status(job_id))
                 if path == "/pair/begin":
                     ip = self.client_address[0] if self.client_address else ""
                     if ip not in ("127.0.0.1", "::1"):
@@ -702,6 +923,14 @@ class PhoneBridge:
                         return self._json(401, {"ok": False, "error": "auth"})
                     bridge._touch(phone)
                     acc = bridge._account()
+                    owner = phone.get("_account_id")
+                    if owner and bridge.api.account_manager:
+                        try:
+                            got = bridge.api.account_manager.get(owner)
+                        except Exception:
+                            got = None
+                        if got:
+                            acc = got
                     prof = bridge._profile()
                     return self._json(
                         200,
@@ -796,6 +1025,22 @@ class PhoneBridge:
             def _do_POST(self):
                 path = urlparse(self.path).path
                 body = self._body()
+                if path == "/internal/job":
+                    if not bridge._internal_ok(self):
+                        return self._json(403, {"ok": False, "error": "local_only"})
+                    if body.get("expire"):
+                        ok = bridge._internal_expire_job(str(body.get("id") or ""))
+                        return self._json(200, {"ok": bool(ok)})
+                    job_id = bridge.enqueue(
+                        str(body.get("kind") or ""),
+                        str(body.get("detail") or ""),
+                        account_id=str(body.get("account_id") or "") or None,
+                    )
+                    if not job_id:
+                        return self._json(
+                            200, {"ok": False, "error": "no phone linked"}
+                        )
+                    return self._json(200, {"ok": True, "id": job_id})
                 if path == "/phone/forget":
                     removed = bridge.forget_phone(
                         str(body.get("android_id") or ""),
