@@ -15,6 +15,7 @@ const state = {
   pairing: false,
   scanningQr: false,
   pcBusy: false,
+  pcRunning: false,
   pendingPhoneUpdate: null,
   phoneUpdateCheckRunning: false,
   phoneUpdateDownloading: false,
@@ -371,8 +372,11 @@ function setPairBusy(busy) {
 }
 
 function scanQr() {
-  if (state.scanningQr || state.pairing) return;
   const status = document.getElementById("pair_status");
+  if (state.scanningQr || state.pairing) {
+    if (status) status.textContent = state.pairing ? "Ya se está vinculando…" : "La cámara ya está abierta.";
+    return;
+  }
   if (status) status.textContent = "Abriendo la cámara…";
   if (native() && native().scanQr) {
     state.scanningQr = true;
@@ -428,7 +432,10 @@ function waitForUrl(ms) {
 
 async function doPair() {
   const status = document.getElementById("pair_status");
-  if (state.pairing) return;
+  if (state.pairing) {
+    if (status) status.textContent = "Ya se está vinculando…";
+    return;
+  }
   const code = String(document.getElementById("pair_code").value || "").replace(/\D/g, "");
   if (code.length !== 6) {
     status.textContent = "Pon el código de 6 dígitos del PC.";
@@ -613,7 +620,10 @@ async function refreshOverview() {
   } catch (e) {}
   try {
     const data = await request("GET", "/overview");
-    if (!data || !data.ok) return;
+    if (!data || !data.ok) {
+      applyPcButtons(state.pcRunning);
+      return;
+    }
     const profile = data.profile || {};
     const progress = data.progress || {};
     const set = function (id, v) {
@@ -642,12 +652,7 @@ async function refreshOverview() {
     const hint = document.getElementById("offline_hint");
     if (hint) hint.hidden = true;
     const running = !!data.running;
-    ["pc_start_btn", "pc_tasks_btn", "pc_edge_btn"].forEach(function (id) {
-      const el = document.getElementById(id);
-      if (el) el.disabled = running;
-    });
-    const stop = document.getElementById("pc_stop_btn");
-    if (stop) stop.disabled = !running;
+    applyPcButtons(running);
     const derived = data.stats || {};
     if (derived.total_points != null) set("stat_total", String(derived.total_points));
     if (derived.today_points != null) set("stat_today", String(derived.today_points));
@@ -666,7 +671,9 @@ async function refreshOverview() {
         br.hidden = true;
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    applyPcButtons(state.pcRunning);
+  }
 }
 
 async function saveQueries() {
@@ -737,6 +744,17 @@ async function finishPending(ok, detail) {
   log(ok ? (detail || "Listo") : (detail || "No terminó"));
 }
 
+function applyPcButtons(running) {
+  state.pcRunning = !!running;
+  if (state.pcBusy) return;
+  ["pc_start_btn", "pc_tasks_btn", "pc_edge_btn"].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!running;
+  });
+  const stop = document.getElementById("pc_stop_btn");
+  if (stop) stop.disabled = !running;
+}
+
 async function runPc(mode) {
   if (state.pcBusy) return;
   state.pcBusy = true;
@@ -755,11 +773,11 @@ async function runPc(mode) {
         log("No se puede iniciar: " + msg);
       }
     }
-    refreshOverview();
   } catch (e) {
     log("No se alcanzó el PC (" + (e.message || e) + ")");
   } finally {
     state.pcBusy = false;
+    refreshOverview();
   }
 }
 
@@ -777,11 +795,11 @@ async function stopPc() {
     } else {
       log("Stop falló: " + JSON.stringify(data));
     }
-    refreshOverview();
   } catch (e) {
     log("Stop no llegó al PC: " + (e.message || e));
   } finally {
     state.pcBusy = false;
+    refreshOverview();
   }
 }
 
@@ -812,6 +830,7 @@ function updateBingUi() {
   const setup = document.getElementById("bing_setup_actions");
   const checkinBtn = document.getElementById("phone_checkin_btn");
   const newsBtn = document.getElementById("phone_news_btn");
+  const readyBtn = document.getElementById("bing_ready_btn");
   if (pill) {
     pill.textContent = !installed
       ? "Bing: no instalada"
@@ -819,9 +838,10 @@ function updateBingUi() {
   }
   if (installBtn) installBtn.hidden = installed;
   if (loginBtn) loginBtn.hidden = !installed || !!state.bingReady;
+  if (readyBtn) readyBtn.hidden = !installed || !!state.bingReady;
   if (setup) setup.hidden = installed && !!state.bingReady;
   [checkinBtn, newsBtn].forEach(function (el) {
-    if (el) el.disabled = !installed || !state.bingReady;
+    if (el) el.disabled = !installed || !state.bingReady || !!state.pendingVerify;
   });
   if (!installed) {
     setBingBanner("Instala Bing (Microsoft). Check-in y noticias solo cuentan en esa app.", true);
@@ -865,6 +885,25 @@ function installBingApp() {
   setBingBanner("Instala Bing y vuelve a AutoRewarder. La UI se actualiza sola.", true);
 }
 
+function confirmBingReady() {
+  if (!bingInstalled()) {
+    state.bingReady = false;
+    updateBingUi();
+    return;
+  }
+  state.waitingBingLogin = false;
+  state.bingReady = true;
+  persist();
+  log("Bing marcada como lista. Check-in y noticias ya se pueden usar.");
+  setBingBanner("Bing lista. Pulsa Check-in o Noticias.");
+  updateBingUi();
+  if (state.pendingBingKind) {
+    const kind = state.pendingBingKind;
+    state.pendingBingKind = null;
+    runPhone(kind);
+  }
+}
+
 function loginBingApp() {
   log("Abriendo Bing para iniciar sesión…");
   state.waitingBingLogin = true;
@@ -898,6 +937,8 @@ function runPhone(kind) {
   const label = kind === "news" ? "noticias" : "check-in";
   log("Abriendo " + label + " en Bing…");
   setBingBanner("Completa " + label + " en Bing. Al volver, AutoRewarder verifica el progreso.", true);
+  state.pendingVerify = kind;
+  updateBingUi();
   let opened = false;
   try {
     if (native() && native().openBingApp) opened = !!native().openBingApp(kind);
@@ -906,7 +947,6 @@ function runPhone(kind) {
     if (native() && native().runTask) native().runTask(kind);
     else if (native() && native().openBing) native().openBing(kind);
   }
-  state.pendingVerify = kind;
 }
 
 window.onBingTask = function (ok, detail) {
@@ -947,15 +987,9 @@ window.onAppResume = function () {
   } else if (state.waitingBingLogin) {
     state.waitingBingLogin = false;
     if (hadBing) {
-      state.bingReady = true;
-      persist();
-      log("Sesión de Bing lista. Ya puedes hacer check-in y noticias.");
-      setBingBanner("Bing lista. Pulsa Check-in o Noticias.");
-      if (state.pendingBingKind) {
-        const kind = state.pendingBingKind;
-        state.pendingBingKind = null;
-        runPhone(kind);
-      }
+      log("Volviste de Bing. Si ya iniciaste sesión, pulsa Bing lista.");
+      setBingBanner("Si ya iniciaste sesión en Bing, pulsa «Bing lista».", true);
+      updateBingUi();
     } else {
       log("Volviste, pero Bing no está instalada.");
       setBingBanner("Instala Bing para continuar.", true);
@@ -988,21 +1022,27 @@ async function heartbeat() {
 }
 
 async function unlinkPhone() {
+  const btn = document.querySelector("button.phone-mini");
+  if (btn) {
+    if (btn.disabled) return;
+    btn.disabled = true;
+  }
   try {
     const data = await request("POST", "/phone/unlink", {});
     if (!data || !data.ok) {
       log("No se pudo desvincular en el PC. Inténtalo de nuevo.");
       return;
     }
+    dropLink("Desvinculado. Escanea el QR para volver a unir.");
   } catch (e) {
     if (isAuthError(e)) {
       dropLink("El PC te desvinculó. Escanea el QR para volver a unir.");
       return;
     }
     log("No se pudo desvincular: " + (e.message || e));
-    return;
+  } finally {
+    if (btn && state.token) btn.disabled = false;
   }
-  dropLink("Desvinculado. Escanea el QR para volver a unir.");
 }
 
 function setUpdateBanner(msg, warn) {
