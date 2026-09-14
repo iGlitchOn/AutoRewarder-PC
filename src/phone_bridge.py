@@ -371,17 +371,21 @@ class PhoneBridge:
 
     def _watch_http(self):
         while not self._beacon_stop.wait(5):
-            if self._httpd is None:
+            if self._thread and self._thread.is_alive() and self._httpd:
                 continue
-            if self._thread and self._thread.is_alive():
-                continue
-            print("[WARNING] Phone bridge HTTP thread died. Restarting.")
+            print("[WARNING] Phone bridge HTTP down. Restarting.")
             try:
-                self._thread = threading.Thread(
-                    target=self._httpd.serve_forever, daemon=True
-                )
-                self._thread.start()
+                if self._httpd is None:
+                    self._httpd = _BridgeServer(
+                        ("0.0.0.0", self.port), self._make_handler()
+                    )
+                if not self._thread or not self._thread.is_alive():
+                    self._thread = threading.Thread(
+                        target=self._httpd.serve_forever, daemon=True
+                    )
+                    self._thread.start()
             except Exception as e:
+                self._httpd = None
                 print(f"[WARNING] Phone bridge restart failed: {e}")
 
     def unlink(self, phone_id):
@@ -1117,7 +1121,7 @@ def start_bridge(api):
     global _bridge
     if _bridge is None:
         _bridge = PhoneBridge(api)
-        _bridge.start()
+    _bridge.start()
     return _bridge
 
 

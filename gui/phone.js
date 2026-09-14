@@ -572,10 +572,13 @@ async function restore() {
   }
 }
 
+let reconnecting = false;
 async function reconnect(hostOverride) {
+  if (reconnecting) return false;
   const typed = String((document.getElementById("reconnect_host") || {}).value || "").trim();
   const host = hostOverride || typed || state.lan || state.base;
   if (!host) return false;
+  reconnecting = true;
   state.base = normalizeBase(host.indexOf("http") === 0 || host.indexOf(":") >= 0 ? host : host + ":38471");
   persist();
   try {
@@ -592,6 +595,8 @@ async function reconnect(hostOverride) {
     log("Ese enlace no aceptó este teléfono.");
   } catch (e) {
     log("No se pudo reconectar.");
+  } finally {
+    reconnecting = false;
   }
   return false;
 }
@@ -971,8 +976,14 @@ async function heartbeat() {
   try { if (native() && native().keepDiscovering) native().keepDiscovering(); } catch (e) {}
   try {
     await request("GET", "/me");
+    const hint = document.getElementById("offline_hint");
+    if (hint) hint.hidden = true;
   } catch (e) {
-    if (isAuthError(e)) dropLink("El PC te desvinculó. Escanea el QR para volver a unir.");
+    if (isAuthError(e)) {
+      dropLink("El PC te desvinculó. Escanea el QR para volver a unir.");
+      return;
+    }
+    await reconnect(state.lan || state.base);
   }
 }
 
@@ -1111,7 +1122,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.19") : "4.3.19";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.20") : "4.3.20";
     const pcUpdate = await _pcPhoneUpdate();
     const original = await _githubPhoneRelease("safarsin/AutoRewarder");
     const custom = await _githubPhoneRelease("iGlitchOn/AutoRewarder-Mobile");
