@@ -18,7 +18,9 @@ jobs:
           python-version: "3.12"
 
       - name: Run script
+        continue-on-error: true
         env:
+          BADGE_REPO: iGlitchOn/AutoRewarder-PC
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: python update_badges.py
