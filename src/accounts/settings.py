@@ -9,6 +9,27 @@ SCHEMA_VERSION = 3
 UNREADABLE = object()
 
 
+def _load_json_dict(path):
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
+        return None
+
+
+def _stash_file(path, suffix):
+    dest = path + suffix
+    try:
+        if os.path.isfile(dest):
+            os.remove(dest)
+        os.replace(path, dest)
+    except OSError:
+        pass
+
+
 def _read_json(path, default):
     """Read JSON without replacing a file that is only temporarily locked."""
     if not os.path.exists(path):
@@ -19,18 +40,20 @@ def _read_json(path, default):
     for attempt in range(4):
         try:
             with open(path, "r", encoding="utf-8") as file:
-                return json.load(file)
+                data = json.load(file)
+            if isinstance(data, dict):
+                return data
+            raise ValueError("settings must be an object")
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            backup_path = path + ".backup"
-            if os.path.exists(backup_path):
+            recovered = _load_json_dict(path + ".backup")
+            if recovered is not None:
+                _stash_file(path, ".corrupt")
                 try:
-                    os.remove(backup_path)
+                    _write_json(path, recovered)
                 except OSError:
                     pass
-            try:
-                os.replace(path, backup_path)
-            except OSError:
-                pass
+                return recovered
+            _stash_file(path, ".backup")
             return default
         except OSError:
             _time.sleep(0.15 * (attempt + 1))
@@ -68,6 +91,8 @@ def _write_json(path, data):
         try:
             with open(temp_path, "w", encoding="utf-8") as file:
                 json.dump(data, file, indent=4)
+                file.flush()
+                os.fsync(file.fileno())
             os.replace(temp_path, path)
             return
         except PermissionError as e:
@@ -144,6 +169,16 @@ class GlobalSettingsManager:
                 pass
 
         if not os.path.exists(self.path):
+            recovered = _load_json_dict(self.path + ".backup")
+            if recovered is not None:
+                merged = {**defaults, **recovered}
+                try:
+                    self.save_settings(merged)
+                except OSError:
+                    pass
+                self._last_good = dict(merged)
+                self._read_ok = True
+                return merged
             # First-launch init. If we can't write (locked/denied), still
             # return defaults so reads don't blow up — the next successful
             # write (via save_settings from a user action) will create it.

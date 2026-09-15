@@ -360,8 +360,7 @@ class AccountManager:
 
             # Write per-account meta.json.
             meta_path = account_meta_path(aid)
-            with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump({"first_setup_done": legacy_first_setup_done}, f, indent=4)
+            _write_json(meta_path, {"first_setup_done": legacy_first_setup_done})
 
             # Strip the legacy key from global settings and persist
             # (preserve hide_browser which still lives at the global layer).

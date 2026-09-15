@@ -58,10 +58,17 @@ def _pair_secret():
     secret = uuid.uuid4().hex + uuid.uuid4().hex
     try:
         os.makedirs(APP_DIR, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(secret)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
     except OSError:
-        pass
+        try:
+            os.remove(path + ".tmp")
+        except OSError:
+            pass
     return secret
 
 

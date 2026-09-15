@@ -10,6 +10,7 @@ module just decides which sections exist, classifies their cards, and loops.
 import json
 import os
 import random
+import shutil
 import time
 from datetime import date
 
@@ -110,24 +111,54 @@ class DailySet:
         if self.logger:
             self.logger(message)
 
+    def _load_status_file(self, path):
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
     def _read_status(self):
         """Return status.json as a dict, or {} if missing/unreadable."""
-        if not os.path.exists(self.status_file):
-            return {}
-        try:
-            with open(self.status_file, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            return data if isinstance(data, dict) else {}
-        except Exception:
+        data = self._load_status_file(self.status_file)
+        if data is not None:
+            return data
+        backup = self._load_status_file(self.status_file + ".backup")
+        if backup is not None:
+            try:
+                if os.path.isfile(self.status_file):
+                    broken = self.status_file + ".corrupt"
+                    if os.path.isfile(broken):
+                        os.remove(broken)
+                    os.replace(self.status_file, broken)
+                self._write_status(backup)
+            except OSError:
+                pass
+            return backup
+        if os.path.exists(self.status_file):
             self._log(f"[ERROR] Failed to read status file: {self.status_file}")
-            return {}
+        return {}
 
     def _write_status(self, data):
         os.makedirs(os.path.dirname(self.status_file), exist_ok=True)
         temp_file = self.status_file + ".tmp"
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
         with open(temp_file, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4)
+            file.flush()
+            os.fsync(file.fileno())
         os.replace(temp_file, self.status_file)
+        try:
+            shutil.copy2(self.status_file, self.status_file + ".backup")
+        except OSError:
+            pass
 
     def _status_is_today(self, key):
         return self._read_status().get(key) == str(date.today())

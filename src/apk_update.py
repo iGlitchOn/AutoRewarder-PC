@@ -16,8 +16,8 @@ import urllib.request
 
 from .config import APP_DIR, BASE_DIR
 
-PHONE_VERSION_CODE = 37
-PHONE_VERSION_NAME = "4.3.25"
+PHONE_VERSION_CODE = 38
+PHONE_VERSION_NAME = "4.3.26"
 MOBILE_REPO = "iGlitchOn/AutoRewarder-Mobile"
 
 
@@ -67,8 +67,13 @@ def write_manifest(extra=None):
     }
     if extra:
         data.update(extra)
-    with open(manifest_path(), "w", encoding="utf-8") as fh:
+    path = manifest_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
     return data
 
 
@@ -115,7 +120,9 @@ def publish_local():
         return read_manifest()
     try:
         if os.path.abspath(best) != os.path.abspath(dest):
-            shutil.copy2(best, dest)
+            tmp = dest + ".tmp"
+            shutil.copy2(best, tmp)
+            os.replace(tmp, dest)
             print(f"Phone APK published from {best}")
     except OSError as e:
         print(f"[WARNING] Could not publish phone APK: {e}")
@@ -162,11 +169,19 @@ def fetch_github():
         )
         if token:
             req2.add_header("Authorization", "Bearer " + token)
-        with urllib.request.urlopen(req2, timeout=60) as resp, open(dest, "wb") as out:
+        tmp = dest + ".tmp"
+        with urllib.request.urlopen(req2, timeout=60) as resp, open(tmp, "wb") as out:
             shutil.copyfileobj(resp, out)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(tmp, dest)
         print(f"Phone APK downloaded from GitHub {repo} ({apk.get('name')})")
         return write_manifest({"source": "github:" + repo, "tag": data.get("tag_name")})
     except Exception as e:
+        try:
+            os.remove(dest + ".tmp")
+        except OSError:
+            pass
         print(f"[WARNING] GitHub APK download failed: {e}")
         return None
 

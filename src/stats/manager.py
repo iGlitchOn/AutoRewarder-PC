@@ -316,20 +316,54 @@ class StatsManager:
                 "[ERROR] Stats file was unreadable or damaged. Starting with a fresh one."
             )
             backup_path = self.stats_file + ".backup"
-            if os.path.exists(backup_path):
-                os.remove(backup_path)
-            os.replace(self.stats_file, backup_path)
+            restored = None
+            if os.path.isfile(backup_path):
+                try:
+                    with open(backup_path, "r", encoding="utf-8") as file:
+                        restored = json.load(file)
+                    if not isinstance(restored, dict):
+                        restored = None
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
+                    restored = None
+            if restored is not None:
+                merged = self._merge_defaults(restored)
+                try:
+                    self.save_stats(merged)
+                except OSError:
+                    pass
+                return merged
+            try:
+                os.replace(self.stats_file, backup_path)
+            except OSError:
+                pass
             fresh = self._default()
-            self.save_stats(fresh)
+            try:
+                self.save_stats(fresh)
+            except OSError:
+                pass
             return fresh
 
     def save_stats(self, data):
         """Save the statistics to the JSON file atomically via a temp file."""
         os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
         temp_file = self.stats_file + ".tmp"
-        with open(temp_file, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
-        os.replace(temp_file, self.stats_file)
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
+        try:
+            with open(temp_file, "w", encoding="utf-8") as file:
+                json.dump(data, file, indent=4)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temp_file, self.stats_file)
+        except OSError:
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
+            raise
 
     def _ensure_day_start_balance(self, stats, new_balance):
         """Remember the first known balance of the local day.

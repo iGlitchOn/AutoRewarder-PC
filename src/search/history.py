@@ -60,16 +60,33 @@ class HistoryManager:
             )
 
             backup_path = self.history_file + ".backup"
+            restored = None
+            if os.path.isfile(backup_path):
+                try:
+                    with open(backup_path, "r", encoding="utf-8") as file:
+                        restored = json.load(file)
+                    if not isinstance(restored, list):
+                        restored = None
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
+                    restored = None
+            if restored is not None:
+                self._cache = restored
+                try:
+                    self.save_history(restored)
+                except OSError:
+                    pass
+                return list(restored)
 
-            if os.path.exists(backup_path):
-                os.remove(backup_path)
-
-            os.replace(self.history_file, backup_path)
+            try:
+                os.replace(self.history_file, backup_path)
+            except OSError:
+                pass
 
             self._cache = []
-            with open(self.history_file, "w", encoding="utf-8") as file:
-                json.dump([], file)
-
+            try:
+                self.save_history([])
+            except OSError:
+                pass
             return []
 
     def save_history(self, history_list):
@@ -94,6 +111,8 @@ class HistoryManager:
         try:
             with open(temp_file, "w", encoding="utf-8") as file:
                 json.dump(history_list, file)
+                file.flush()
+                os.fsync(file.fileno())
             os.replace(temp_file, self.history_file)
         except OSError:
             try:
