@@ -13,6 +13,8 @@ a = Analysis(
         ('assets/queries.json', 'assets'),
         ('assets/icon.ico', 'assets'),
         ('assets/visual_search_assets', 'assets/visual_search_assets'),
+        ('LICENSE', '.'),
+        ('NOTICE', '.'),
     ] + collect_data_files('nlpaug'),
     hiddenimports=[
         'selenium.webdriver.edge.webdriver',

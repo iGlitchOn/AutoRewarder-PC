@@ -2,7 +2,7 @@
 
 AutoRewarder PC es la aplicación de Windows que centraliza las búsquedas y tareas de Microsoft Rewards desde una interfaz gráfica. También puede coordinarse con la aplicación móvil para enviar comandos, consultar el estado del teléfono y ejecutar las búsquedas móviles disponibles.
 
-> Versión documentada: **4.3.32**<br>
+> Versión documentada: **4.3.33**<br>
 > Este repositorio: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)<br>
 > **Fork de** [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder)
 
@@ -22,6 +22,18 @@ El motor original (Selenium + Edge, búsquedas PC/móvil emuladas, Daily Set, Vi
 - Comprobación dual de GitHub: instala solo releases de `iGlitchOn`; avisa si hay una versión nueva en `safarsin/AutoRewarder`.
 - Interfaz en inglés y español (`gui/i18n.js`).
 - Branding iGlitchOff y documentación de usuario en español.
+
+## Licencia
+
+MIT. Conserva el copyright de safarsin (2025) y añade el de iGlitchOff / iGlitchOn (2026) por las modificaciones y el compañero Android. Textos: [LICENSE](LICENSE) y [NOTICE](NOTICE).
+
+`queries.json` y las fotos de visual search se heredaron del original; su procedencia exacta no está documentada. Las listas en `datasets/` se aceptan bajo MIT.
+
+cloudflared (Apache-2.0) y ngrok (propietario, ToS de ngrok) son opcionales y no se redistribuyen en el instalador. Edge / WebView2 no se empaquetan.
+
+## Disclaimer
+
+No está afiliado a Microsoft. Automatizar Bing o Microsoft Rewards puede violar sus términos. El uso, la cuenta y los puntos son responsabilidad de quien ejecuta el programa.
 
 ## Qué hace
 

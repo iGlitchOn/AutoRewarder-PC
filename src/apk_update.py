@@ -16,8 +16,8 @@ import urllib.request
 
 from .config import APP_DIR, BASE_DIR
 
-PHONE_VERSION_CODE = 36
-PHONE_VERSION_NAME = "4.3.24"
+PHONE_VERSION_CODE = 37
+PHONE_VERSION_NAME = "4.3.25"
 MOBILE_REPO = "iGlitchOn/AutoRewarder-Mobile"
 
 

@@ -35,6 +35,13 @@ def main() -> int:
         tag = ref[len("refs/tags/v") :]
         if tag != version:
             mismatches.append(f"git tag {tag}")
+    for name in ("LICENSE", "NOTICE"):
+        path = ROOT / name
+        if not path.is_file():
+            mismatches.append(f"missing {name}")
+    license_text = (ROOT / "LICENSE").read_text(encoding="utf-8") if (ROOT / "LICENSE").is_file() else ""
+    if "safarsin" not in license_text or "iGlitchOn" not in license_text:
+        mismatches.append("LICENSE missing dual copyright")
     if mismatches:
         print("CURRENT_VERSION", version)
         print("mismatch:", "; ".join(mismatches))

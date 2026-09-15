@@ -1,0 +1,28 @@
+AutoRewarder PC
+Copyright (c) 2025 safarsin
+Copyright (c) 2026 iGlitchOff / iGlitchOn
+
+This distribution is a fork of https://github.com/safarsin/AutoRewarder (MIT).
+The MIT license text is in LICENSE and must ship with binaries.
+
+Third-party software bundled or used at runtime (not Microsoft Rewards):
+
+- Selenium — Apache-2.0 — https://github.com/SeleniumHQ/selenium
+- Requests — Apache-2.0 — https://github.com/psf/requests
+- pywebview — BSD-3-Clause — https://github.com/r0x0r/pywebview
+- pystray — BSD — https://github.com/moses-palmer/pystray
+- Pillow — HPND-derived — https://github.com/python-pillow/Pillow
+- qrcode — BSD — https://github.com/lincolnloop/python-qrcode
+- nlpaug — MIT — https://github.com/makcedward/nlpaug
+- Meyer CSS reset (gui/normalize.css) — public domain
+- cloudflared (optional download) — Apache-2.0 — Cloudflare
+- ngrok (optional, user-provided binary) — proprietary; ngrok Terms of Service
+- Microsoft Edge / WebView2 / msedgedriver — Microsoft EULA; not redistributed
+
+Data:
+- assets/queries.json — inherited from safarsin as a “google-trends” list; original dump URL and license are undocumented.
+- datasets/*.json — community contributions accepted under MIT (see CONTRIBUTING.md).
+- assets/visual_search_assets/*.jpg — bundled photographs inherited from upstream; source undocumented.
+
+This project is not affiliated with Microsoft. Automating Bing / Microsoft Rewards
+may violate Microsoft’s terms. Use is at your own risk.
