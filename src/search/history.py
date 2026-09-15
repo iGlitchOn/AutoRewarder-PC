@@ -86,11 +86,21 @@ class HistoryManager:
         os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
 
         temp_file = self.history_file + ".tmp"
-
-        with open(temp_file, "w", encoding="utf-8") as file:
-            json.dump(history_list, file)
-
-        os.replace(temp_file, self.history_file)
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
+        try:
+            with open(temp_file, "w", encoding="utf-8") as file:
+                json.dump(history_list, file)
+            os.replace(temp_file, self.history_file)
+        except OSError:
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
+            raise
 
     def add_to_history(self, query_text, status):
         """

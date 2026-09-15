@@ -124,6 +124,7 @@ class PhoneBridge:
         self._jobs = {}  # job_id -> dict
         self._lock = threading.Lock()
         self.tunnel = None
+        self._tunnel_timer = None
         self._pair_secret = _pair_secret()
         self._pair_fails = {}
         self._pair_replay = None
@@ -177,7 +178,9 @@ class PhoneBridge:
             from .tunnel import PhoneTunnel
 
             self.tunnel = PhoneTunnel(self.port, logger=print)
-            threading.Timer(2.0, self.tunnel.start).start()
+            self._tunnel_timer = threading.Timer(2.0, self.tunnel.start)
+            self._tunnel_timer.daemon = True
+            self._tunnel_timer.start()
         except Exception as e:
             print(f"[WARNING] Remote tunnel failed to start: {e}")
         try:
@@ -190,6 +193,12 @@ class PhoneBridge:
 
     def stop(self):
         self._beacon_stop.set()
+        try:
+            timer = getattr(self, "_tunnel_timer", None)
+            if timer is not None:
+                timer.cancel()
+        except Exception:
+            pass
         try:
             if self.tunnel is not None:
                 self.tunnel.stop()

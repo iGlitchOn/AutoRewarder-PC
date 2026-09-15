@@ -29,6 +29,9 @@ function log(msg) {
   const line = document.createElement("div");
   line.textContent = msg;
   area.appendChild(line);
+  while (area.childElementCount > 400) {
+    area.removeChild(area.firstChild);
+  }
   area.scrollTop = area.scrollHeight;
 }
 
