@@ -35,10 +35,7 @@ DASHBOARD_URL = "https://rewards.bing.com/dashboard"
 EARN_URL = "https://rewards.bing.com/earn"
 FLYOUT_URL = "https://www.bing.com/rewards/panelflyout?style=chrome"
 
-# Always visit these punchcards even if the earn-page card looks complete.
-KNOWN_PUNCHCARD_URLS = (
-    "https://rewards.bing.com/earn/quest/ENWW_pcparent_FY27_BingMonthlyPC_Sep_punchcard",
-)
+# Punchcards come from getuserinfo (punchCards), not a hardcoded FY/month slug.
 
 # Concatenate every streamed RSC chunk (`window.__next_f` is a list of
 # `[1, "<chunk>"]` entries) and pull out each `dailySetItems` array, returning
@@ -1576,20 +1573,22 @@ class NewDashboardDailySet:
             (c.get("url") or "").split("?")[0].rstrip("/"): c
             for c in api.get("punchcards") or []
         }
-        for known in KNOWN_PUNCHCARD_URLS:
-            key = known.split("?")[0].rstrip("/")
-            card = api_cards.get(key)
-            if card and card.get("complete"):
+        for key, card in api_cards.items():
+            if not key or "punchcard" not in key.lower():
                 continue
-            if key not in seen_urls:
-                pending.append(
-                    {
-                        "url": known,
-                        "title": (card or {}).get("title") or "Monthly PC punchcard",
-                        "points": 50,
-                    }
-                )
-                self._log(f"Quests: adding punchcard {known}")
+            if card.get("complete"):
+                continue
+            if key in seen_urls:
+                continue
+            pending.append(
+                {
+                    "url": card.get("url") or key,
+                    "title": card.get("title") or "Punchcard",
+                    "points": card.get("points") or 0,
+                }
+            )
+            seen_urls.add(key)
+            self._log(f"Quests: adding punchcard from API {key}")
 
         if not pending:
             self._log("Quests: no points-earning quest to do.")

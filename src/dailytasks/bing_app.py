@@ -11,16 +11,16 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 
 from .rewards_api import fetch_userinfo, parse_userinfo
+from ..search.locale import detect_system_locale
 from ..utils import wait_or_stop
 
-# Bing *phone* client (Colombia). News and check-in live here, not on the PC dashboard.
-MARKET = "es-CO"
-APP_HOME = f"https://www.bing.com/?form=APMCS1&setmkt={MARKET}&setlang=es"
-NEWS_URL = (
-    f"https://www.bing.com/news/search?q=noticias+colombia&form=APMCS1&setmkt={MARKET}"
-)
+# Bing *phone* client. Market follows the Windows locale, not a hardcoded CO.
+MARKET = detect_system_locale() or "en-US"
+LANG = MARKET.split("-")[0]
+APP_HOME = f"https://www.bing.com/?form=APMCS1&setmkt={MARKET}&setlang={LANG}"
+NEWS_URL = f"https://www.bing.com/news/search?q=news&form=APMCS1&setmkt={MARKET}"
 NEWS_HOME = f"https://www.bing.com/news?form=APMCS1&setmkt={MARKET}"
-MSN_HOME = f"https://www.msn.com/es-co?ocid=bingnews&setmkt={MARKET}"
+MSN_HOME = f"https://www.msn.com/?ocid=bingnews&setmkt={MARKET}"
 READ_TO_EARN = f"https://rewards.bing.com/earn?setmkt={MARKET}"
 CHECKIN_URLS = (
     f"https://rewards.bing.com/dashboard?setmkt={MARKET}",

@@ -16,6 +16,7 @@ from selenium.webdriver.common.by import By
 
 from ..utils import human_typing, wait_or_stop
 from ..emulator import HumanBehavior
+from .locale import detect_system_locale
 
 # Rewards' "visual search streak" mission credits a search only when it starts
 # from the mission's own link: the Bing homepage carrying its promo code. The
@@ -216,8 +217,11 @@ class SearchEngine:
                 got_timeout = False
                 try:
                     if mobile:
+                        mkt = detect_system_locale() or "en-US"
+                        lang = mkt.split("-")[0]
                         driver.get(
-                            "https://www.bing.com/?form=APMCS1&setmkt=es-CO&setlang=es"
+                            "https://www.bing.com/?form=APMCS1"
+                            f"&setmkt={mkt}&setlang={lang}"
                         )
                     else:
                         driver.get("https://www.bing.com")
@@ -227,6 +231,11 @@ class SearchEngine:
                         driver.execute_script("window.stop();")
                     except Exception:
                         pass
+                blocked = self._page_block_reason(driver)
+                if blocked:
+                    self._log(self._block_message(blocked))
+                    self._add_to_history(f"Search: {query}", f"[ERROR] {blocked}")
+                    return successful
                 if wait_or_stop(random.uniform(4, 8), stop_event):
                     self._log("Stop requested — halting search loop.")
                     return successful
@@ -375,6 +384,11 @@ class SearchEngine:
                 except WebDriverException:
                     pass
 
+                blocked = self._page_block_reason(driver)
+                if blocked:
+                    self._log(self._block_message(blocked))
+                    self._add_to_history(f"Search: {query}", f"[ERROR] {blocked}")
+                    return successful
                 if got_timeout and not self._has_search_results(driver):
                     self._log(f"[ERROR] Search #{i + 1} timed out with no results.")
                     self._add_to_history(f"Search: {query}", "[ERROR] Timed out")
@@ -423,6 +437,38 @@ class SearchEngine:
         from ..emulator.driver import DriverManager
 
         return DriverManager._session_died(err)
+
+    def _page_block_reason(self, driver):
+        """Login wall or human-check. Uses URL/title only — not Bing locators."""
+        try:
+            url = (driver.current_url or "").lower()
+        except Exception:
+            url = ""
+        try:
+            title = (driver.title or "").lower()
+        except Exception:
+            title = ""
+        blob = url + " " + title
+        if "login.live.com" in blob or "login.microsoftonline.com" in blob:
+            return "login"
+        if (
+            "unusual traffic" in blob
+            or "/challenge" in blob
+            or "captcha" in blob
+            or "verify you are human" in blob
+            or "privacynotice" in blob
+        ):
+            return "challenge"
+        return None
+
+    @staticmethod
+    def _block_message(reason):
+        if reason == "login":
+            return (
+                "[ERROR] Microsoft login expired. Re-setup this account. "
+                "Stopping remaining searches."
+            )
+        return "[ERROR] Bing is showing a human check. Stopping remaining searches."
 
     def _has_search_results(self, driver):
         try:
