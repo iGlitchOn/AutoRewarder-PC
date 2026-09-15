@@ -87,7 +87,16 @@ class DriverManager:
         if verbose:
             try:
                 log_dir = self.profile_path or APP_DIR
-                kwargs["log_output"] = os.path.join(log_dir, "msedgedriver.log")
+                log_path = os.path.join(log_dir, "msedgedriver.log")
+                try:
+                    if (
+                        os.path.isfile(log_path)
+                        and os.path.getsize(log_path) > 2 * 1024 * 1024
+                    ):
+                        os.remove(log_path)
+                except OSError:
+                    pass
+                kwargs["log_output"] = log_path
                 kwargs["service_args"] = ["--verbose"]
             except Exception:
                 pass

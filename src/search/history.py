@@ -4,6 +4,9 @@ import os
 import json
 from datetime import datetime
 
+# Cap so add_to_history stays O(1) in RAM and writes stay bounded.
+HISTORY_MAX = 5000
+
 
 class HistoryManager:
     """
@@ -20,6 +23,7 @@ class HistoryManager:
 
         self.history_file = history_file
         self._logger = logger
+        self._cache = None
 
     def _log(self, message):
         if self._logger:
@@ -31,10 +35,14 @@ class HistoryManager:
         Returns an empty list if the file is missing or unreadable.
         """
 
+        if self._cache is not None:
+            return list(self._cache)
+
         if (
             not os.path.exists(self.history_file)
             or os.path.getsize(self.history_file) == 0
         ):
+            self._cache = []
             return []
 
         try:
@@ -44,7 +52,8 @@ class HistoryManager:
                 if not isinstance(history, list):
                     raise ValueError("History data must be a list")
 
-                return history
+                self._cache = history
+                return list(history)
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             self._log(
                 "[ERROR] History file was unreadable or damaged. Starting with a fresh one."
@@ -57,8 +66,9 @@ class HistoryManager:
 
             os.replace(self.history_file, backup_path)
 
+            self._cache = []
             with open(self.history_file, "w", encoding="utf-8") as file:
-                json.dump([], file, indent=4)
+                json.dump([], file)
 
             return []
 
@@ -70,12 +80,15 @@ class HistoryManager:
             history_list (list): The list of search records to save.
         """
 
+        if len(history_list) > HISTORY_MAX:
+            history_list = history_list[-HISTORY_MAX:]
+        self._cache = list(history_list)
         os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
 
         temp_file = self.history_file + ".tmp"
 
         with open(temp_file, "w", encoding="utf-8") as file:
-            json.dump(history_list, file, indent=4)
+            json.dump(history_list, file)
 
         os.replace(temp_file, self.history_file)
 
@@ -101,6 +114,8 @@ class HistoryManager:
 
         history_list = self.get_history()
         history_list.append(new_record)
+        if len(history_list) > HISTORY_MAX:
+            history_list = history_list[-HISTORY_MAX:]
         self.save_history(history_list)
 
     def add_activity(self, activity, status):

@@ -190,6 +190,9 @@ function update_log(message) {
   if (!logDiv) return;
 
   logDiv.appendChild(_new_log_line(message));
+  while (logDiv.childElementCount > 400) {
+    logDiv.removeChild(logDiv.firstChild);
+  }
   logDiv.scrollTop = logDiv.scrollHeight;
 }
 

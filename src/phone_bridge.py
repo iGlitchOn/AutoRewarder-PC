@@ -190,6 +190,11 @@ class PhoneBridge:
 
     def stop(self):
         self._beacon_stop.set()
+        try:
+            if self.tunnel is not None:
+                self.tunnel.stop()
+        except Exception:
+            pass
         if self._httpd:
             try:
                 self._httpd.shutdown()
@@ -440,6 +445,7 @@ class PhoneBridge:
             return None
         if getattr(self, "_peer", None):
             return self._peer_enqueue(kind, detail)
+        self._prune_jobs()
         if account_id:
             candidates = self._phones_for_account(account_id)
         else:

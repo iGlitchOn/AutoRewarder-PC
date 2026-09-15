@@ -74,12 +74,20 @@ class PhoneTunnel:
     def stop(self):
         self._stop.set()
         proc = self._proc
+        self._proc = None
         if proc is None:
             return
         try:
             proc.terminate()
         except Exception:
             pass
+        try:
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
     def _run(self):
         try:
