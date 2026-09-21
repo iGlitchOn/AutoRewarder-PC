@@ -30,6 +30,17 @@ def main() -> int:
         mismatches.append(f"README.md {readme}")
     if guide != version:
         mismatches.append(f"USER_GUIDE.md {guide}")
+    html_needles = {
+        "gui/index.html": f"PC control · {version}",
+        "gui/phone.html": f"Mobile companion · {version}",
+    }
+    for rel, needle in html_needles.items():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        if needle not in text:
+            mismatches.append(f"{rel} missing {needle}")
+    phone_js = (ROOT / "gui" / "phone.js").read_text(encoding="utf-8")
+    if f'"{version}"' not in phone_js:
+        mismatches.append(f"gui/phone.js missing fallback {version}")
     ref = os.environ.get("GITHUB_REF") or ""
     if ref.startswith("refs/tags/v"):
         tag = ref[len("refs/tags/v") :]

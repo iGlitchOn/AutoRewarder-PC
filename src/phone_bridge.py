@@ -119,9 +119,12 @@ def event_completes_job(kind, detail=""):
 
 
 class PhoneBridge:
-    def __init__(self, api):
+    def __init__(self, api, port=None):
         self.api = api
-        self.port = BRIDGE_PORT
+        # port 0 binds an ephemeral port. Tests use that so they never touch
+        # the production listener on BRIDGE_PORT (38471).
+        self.port = BRIDGE_PORT if port is None else int(port)
+        self._ephemeral = self.port == 0
         self._httpd = None
         self._thread = None
         self._peer = None
@@ -146,11 +149,19 @@ class PhoneBridge:
         handler = self._make_handler()
         self._httpd = None
         self._peer = None
-        for attempt in range(3):
+        bind_host = "127.0.0.1" if self._ephemeral else "0.0.0.0"
+        attempts = 1 if self._ephemeral else 3
+        for attempt in range(attempts):
             try:
-                self._httpd = _BridgeServer(("0.0.0.0", self.port), handler)
+                self._httpd = _BridgeServer((bind_host, self.port), handler)
                 break
             except OSError as e:
+                if self._ephemeral:
+                    print(
+                        "[ERROR] Phone bridge ephemeral port failed to bind: "
+                        f"{e}. Refusing production port {BRIDGE_PORT}."
+                    )
+                    return
                 if self._local_bridge_alive():
                     self._peer = f"http://127.0.0.1:{self.port}"
                     print(
@@ -176,8 +187,15 @@ class PhoneBridge:
                 "LAN pairing needs that port free."
             )
             return
+        if self._ephemeral:
+            self.port = int(self._httpd.server_address[1])
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
+        if self._ephemeral:
+            # HTTP only. No beacon, firewall, tunnel, or APK publish: those
+            # belong to the GUI process on BRIDGE_PORT.
+            print(f"Phone bridge test listen on http://127.0.0.1:{self.port}")
+            return
         threading.Thread(target=self._beacon_loop, daemon=True).start()
         threading.Thread(target=self._watch_http, daemon=True).start()
         threading.Thread(target=self._open_firewall, daemon=True).start()

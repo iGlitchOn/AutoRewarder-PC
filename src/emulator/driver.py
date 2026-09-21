@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.request
 
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options
@@ -142,6 +143,109 @@ class DriverManager:
                     pass
         return False
 
+    def _devtools_port_file(self):
+        """Port written by Edge inside this profile, or None."""
+        if not self.profile_path:
+            return None
+        path = os.path.join(self.profile_path, "DevToolsActivePort")
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                line = (handle.readline() or "").strip()
+            port = int(line)
+        except (OSError, ValueError):
+            return None
+        if 1 <= port <= 65535:
+            return port
+        return None
+
+    def _edge_devtools(self, port):
+        """True when this port speaks Edge's DevTools HTTP."""
+        if not self._wait_debug_port(port, timeout=0.4):
+            return False
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{int(port)}/json/version",
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                body = resp.read(500).decode("utf-8", "replace").lower()
+        except Exception:
+            return False
+        return "edg" in body
+
+    def _debug_port_from_processes(self):
+        """remote-debugging-port of an msedge.exe already on this profile."""
+        if platform.system() != "Windows" or not self.profile_path:
+            return None
+        script = (
+            "$profile = $env:AR_EDGE_PROFILE\n"
+            "if (-not $profile) { return }\n"
+            "$alt = $profile.Replace('\\','/')\n"
+            "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
+            "-ErrorAction SilentlyContinue | ForEach-Object {\n"
+            "  $cl = $_.CommandLine\n"
+            "  if (-not $cl) { return }\n"
+            "  if ($cl -notlike ('*' + $profile + '*') -and "
+            "$cl -notlike ('*' + $alt + '*')) { return }\n"
+            "  if ($cl -match '--remote-debugging-port=(\\d+)') { $matches[1]; return }\n"
+            "} | Select-Object -First 1\n"
+        )
+        env = os.environ.copy()
+        env["AR_EDGE_PROFILE"] = os.path.abspath(self.profile_path)
+        try:
+            out = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    script,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=6,
+                creationflags=0x08000000,
+                env=env,
+            )
+        except Exception:
+            return None
+        lines = [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
+        if not lines:
+            return None
+        try:
+            port = int(lines[0])
+        except ValueError:
+            return None
+        if 1 <= port <= 65535:
+            return port
+        return None
+
+    def _try_reuse_edge(self, scan_processes=False):
+        """Attach to this profile's Edge when one is already listening.
+
+        A second msedge on the same user-data-dir raises
+        "user data directory is already in use". Warmup and Start must share.
+        """
+        ports = []
+        file_port = self._devtools_port_file()
+        if file_port:
+            ports.append(file_port)
+        if scan_processes:
+            found = self._debug_port_from_processes()
+            if found and found not in ports:
+                ports.insert(0, found)
+        for port in ports:
+            if not self._edge_devtools(port):
+                continue
+            try:
+                driver = self.attach_to_edge(port)
+            except Exception:
+                continue
+            self._remember_driver_pid(driver)
+            self._remember_driver_port(driver)
+            return driver
+        return None
+
     def _attach_fallback(self, hide=False):
         """Launch a real Edge with a debug port and attach Selenium to it."""
         port = self.debug_port()
@@ -207,15 +311,20 @@ class DriverManager:
             headless = self.hide_browser
 
         os.makedirs(self.profile_path, exist_ok=True)
-        # A forced app close can leave msedge.exe alive with this account's
-        # profile. Chromium rejects a second process using the same profile,
-        # then Selenium reports the misleading DevToolsActivePort error.
-        # Edge 133+ also relaunches itself (compat layer): the first process
-        # exits, a second window stays open, and Selenium reports
-        # "session not created: Chrome instance exited".
-        self.close_running_edge()
-        self._clear_profile_locks()
-        time.sleep(0.8)
+        # Warmup or a run may already own this profile. Attach to that Edge.
+        # Killing it and launching another is what prints
+        # "user data directory is already in use".
+        _driver = self._try_reuse_edge()
+        if _driver is None:
+            # A forced app close can leave msedge.exe alive with this account's
+            # profile. Chromium rejects a second process using the same profile,
+            # then Selenium reports the misleading DevToolsActivePort error.
+            # Edge 133+ also relaunches itself (compat layer): the first process
+            # exits, a second window stays open, and Selenium reports
+            # "session not created: Chrome instance exited".
+            self.close_running_edge()
+            self._clear_profile_locks()
+            time.sleep(0.8)
 
         def build_options(recovery_mode=False):
             options = Options()
@@ -288,6 +397,19 @@ class DriverManager:
                     break
                 except Exception as err:
                     last_err = err
+                    msg = str(err).lower()
+                    # The profile is taken by an Edge we already started.
+                    # Do not launch a native fallback on top of it.
+                    if "user data directory is already in use" in msg:
+                        reused = self._try_reuse_edge(scan_processes=attempt == 2)
+                        if reused is not None:
+                            launched = reused
+                            last_err = None
+                            break
+                        self.close_running_edge()
+                        self._clear_profile_locks()
+                        time.sleep(1.2 + attempt)
+                        continue
                     self.close_running_edge()
                     self._clear_profile_locks()
                     if self._session_died(err):
@@ -304,10 +426,20 @@ class DriverManager:
                     time.sleep(1.2 + attempt)
             return launched, last_err
 
-        _driver, last_err = try_launch()
-        if _driver is None and self._profile_json_corrupt():
-            self._reset_corrupt_profile()
+        if _driver is None:
             _driver, last_err = try_launch()
+            busy = "user data directory is already in use" in str(last_err or "").lower()
+            if _driver is None and busy:
+                _driver = self._try_reuse_edge(scan_processes=True)
+            # A locked profile is not a corrupt profile. Rewriting JSON while
+            # Edge holds the folder would drop cookies for nothing.
+            if (
+                _driver is None
+                and not busy
+                and self._profile_json_corrupt()
+                and self._repair_profile_json()
+            ):
+                _driver, last_err = try_launch()
         if _driver is None:
             raise last_err
 
@@ -449,30 +581,55 @@ class DriverManager:
                 return True
         return False
 
-    def _reset_corrupt_profile(self):
-        """Move a broken EdgeProfile aside and start a fresh folder for this account."""
+    def _repair_profile_json(self):
+        """Rewrite Chromium JSON that does not parse. Leave cookies in place.
+
+        A previous EdgeProfile.bak is copied back when its JSON parses.
+        That bak is never deleted. Without a bak, the broken bytes are kept
+        beside the file as .bad and the live file becomes {}.
+        """
         if not self.profile_path:
             return False
-        self.close_running_edge()
-        src = os.path.abspath(self.profile_path)
-        bak = src + ".bak"
-        try:
-            if os.path.isdir(bak) or os.path.isfile(bak):
-                shutil.rmtree(bak, ignore_errors=True)
-                try:
-                    os.remove(bak)
-                except OSError:
-                    pass
-            if os.path.isdir(src):
-                os.replace(src, bak)
-            os.makedirs(src, exist_ok=True)
-            return True
-        except OSError:
+        root = os.path.abspath(self.profile_path)
+        bak_root = root + ".bak"
+        repaired = False
+        for path in self._profile_json_files():
+            if not os.path.isfile(path):
+                continue
             try:
-                os.makedirs(src, exist_ok=True)
+                with open(path, "r", encoding="utf-8") as handle:
+                    json.load(handle)
+                continue
             except OSError:
+                continue
+            except (UnicodeError, json.JSONDecodeError, ValueError):
                 pass
-            return False
+            rel = os.path.relpath(path, root)
+            bak_file = os.path.join(bak_root, rel)
+            restored = False
+            if os.path.isfile(bak_file):
+                try:
+                    with open(bak_file, "r", encoding="utf-8") as handle:
+                        payload = json.load(handle)
+                    with open(path, "w", encoding="utf-8") as handle:
+                        json.dump(payload, handle)
+                    restored = True
+                except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+                    restored = False
+            if not restored:
+                bad = path + ".bad"
+                if not os.path.exists(bad):
+                    try:
+                        shutil.copy2(path, bad)
+                    except OSError:
+                        pass
+                try:
+                    with open(path, "w", encoding="utf-8") as handle:
+                        handle.write("{}\n")
+                except OSError:
+                    continue
+            repaired = True
+        return repaired
 
     def _clear_profile_locks(self):
         """Drop Chromium singleton lock files left by a killed Edge process."""
