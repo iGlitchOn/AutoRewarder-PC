@@ -17,15 +17,52 @@ SKIP_TITLE_RE = re.compile(
 )
 SKIP_URL_RE = re.compile(
     r"xbox\.com|microsoft\.com/store|aka\.ms|rewards\.bing\.com/redeem|"
-    r"rewards\.bing\.com/refer|ms-settings:|play\.google|apps\.apple",
+    r"rewards\.bing\.com/refer|ms-settings:|play\.google|apps\.apple|"
+    r"copilot\.microsoft\.com",
     re.I,
 )
 
 
+def is_rewards_quest_url(url):
+    """True for Rewards punchcards /earn/quest pages the bot should try."""
+    u = (url or "").lower()
+    if "/earn/quest/" in u:
+        return True
+    if "punchcard" in u and (
+        "rewards.bing.com" in u or u.startswith("/")
+    ):
+        return True
+    return False
+
+
 def skip_offer(title, url=""):
-    """True for promos the bot must not click or show as live quests."""
+    """True for promos the bot must not click (Store, Xbox, Copilot app).
+
+    Rewards punchcard URLs stay clickable even if the title mentions Copilot
+    or Store — those go through /earn/quest. Unclickable destinations still
+    belong in For you, not the success counter.
+    """
+    if is_rewards_quest_url(url):
+        return False
     blob = f"{title or ''} {url or ''}"
     return bool(SKIP_TITLE_RE.search(blob) or SKIP_URL_RE.search(blob))
+
+
+def punchcard_incomplete(card):
+    """True when a parse_userinfo punchcard still has unlocked work."""
+    if not isinstance(card, dict):
+        return False
+    if card.get("complete"):
+        return False
+    done, total = card.get("done"), card.get("total")
+    if (
+        isinstance(done, int)
+        and isinstance(total, int)
+        and total > 0
+        and done >= total
+    ):
+        return False
+    return True
 
 
 def fetch_userinfo(driver):
@@ -102,6 +139,25 @@ def parse_userinfo(data):
     if isinstance(pts, (int, float)) and not isinstance(pts, bool) and pts >= 0:
         out["available_points"] = int(pts)
 
+    for blob in (status, dash):
+        for key in (
+            "unclaimedPoints",
+            "unclaimed_points",
+            "pendingPoints",
+            "readyToClaim",
+            "readyToClaimPoints",
+        ):
+            raw_claim = blob.get(key) if isinstance(blob, dict) else None
+            if (
+                isinstance(raw_claim, (int, float))
+                and not isinstance(raw_claim, bool)
+                and raw_claim >= 0
+            ):
+                out["claim"] = int(raw_claim)
+                break
+        if "claim" in out:
+            break
+
     pc = _first_counter(counters, "pcSearch", "pcsearch")
     if pc:
         out["pc"] = pc
@@ -164,6 +220,8 @@ def parse_userinfo(data):
             continue
         parent = card.get("parentPromotion") or card
         dest = parent.get("destination") or ""
+        if isinstance(dest, str) and dest.startswith("/"):
+            dest = "https://rewards.bing.com" + dest
         title = parent.get("title") or parent.get("name") or "Punchcard"
         child = card.get("childPromotions") or []
         total = len(child) if isinstance(child, list) else 0
@@ -211,4 +269,8 @@ def merge_live(page_live, api_live):
             merged[key] = value
     if api_live.get("checkin") is None and "checkin" not in (page_live or {}):
         merged.pop("checkin", None)
+    if isinstance(api_live.get("claim"), int):
+        merged["claim"] = api_live["claim"]
+    if api_live.get("punchcards"):
+        merged["punchcards"] = api_live["punchcards"]
     return merged

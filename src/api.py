@@ -3565,10 +3565,14 @@ class AutoRewarderAPI:
                 f"{newly} new card(s)",
             )
         claim = live.get("claim")
+        if not isinstance(claim, int):
+            claim = totals.get("claim_left")
         if isinstance(claim, int) and claim > 0:
             self._report("Ready to claim", False, f"{claim} still pending")
-        else:
+        elif isinstance(claim, int) and claim == 0:
             self._report("Ready to claim", True, "nothing pending")
+        else:
+            self._report("Ready to claim", False, "amount unread, not treated as 0")
         earn = int(totals.get("earn") or 0)
         self._report(
             "More activities",
@@ -3576,11 +3580,26 @@ class AutoRewarderAPI:
             f"{earn} opened",
         )
         quests = int(totals.get("quests") or 0)
-        self._report(
-            "Punchcards",
-            True if quests else "skip",
-            f"{quests} task(s) opened",
-        )
+        left = int(totals.get("quests_left") or 0)
+        if totals.get("quests_error"):
+            self._report(
+                "Punchcards",
+                False,
+                "task list did not render"
+                + (f", {left} still open" if left else ""),
+            )
+        elif left > 0:
+            self._report(
+                "Punchcards",
+                False,
+                f"{quests} verified, {left} still open"
+                if quests
+                else f"{left} still open",
+            )
+        elif quests:
+            self._report("Punchcards", True, f"{quests} task(s) verified")
+        else:
+            self._report("Punchcards", "skip", "none open")
 
     def _report(self, name, ok, detail=""):
         """Log a step and append it to Execution history (OK / Skipped / ERROR)."""
@@ -3774,8 +3793,12 @@ class AutoRewarderAPI:
                     if self.history is not None:
                         self.history.add_activity("Daily tasks: set", "Stopped by user")
                     return
-                if success and remaining == 0:
-                    self.daily_set.mark_as_completed()
+                live_now = getattr(self.daily_set, "live_progress", {}) or {}
+                still_open = self.daily_set.day_still_open(live_now, totals)
+                if success and remaining == 0 and not still_open:
+                    if self.daily_set.mark_as_completed() is False:
+                        still_open = True
+                if success and remaining == 0 and not still_open:
                     self.log("Daily tasks completed and marked as done for today.")
                     if self.history is not None:
                         completed = int(totals.get("newly", 0) or 0)
@@ -3783,14 +3806,25 @@ class AutoRewarderAPI:
                             "Daily tasks: set",
                             f"Success ({completed} new task{'s' if completed != 1 else ''})",
                         )
-                elif remaining:
+                elif remaining or still_open:
+                    why = []
+                    if remaining:
+                        why.append(f"{remaining} card(s)")
+                    claim = live_now.get("claim")
+                    if isinstance(claim, int) and claim > 0:
+                        why.append(f"claim {claim}")
+                    left = int(totals.get("quests_left") or 0)
+                    if left:
+                        why.append(f"{left} punchcard(s)")
                     self.log(
-                        f"Daily tasks partial: {remaining} card(s) still incomplete. "
-                        "They will be retried automatically."
+                        "Daily tasks partial: "
+                        + (", ".join(why) if why else "claim/punchcards still open")
+                        + ". Not marking the day done."
                     )
                     if self.history is not None:
                         self.history.add_activity(
-                            "Daily tasks: set", f"Partial ({remaining} remaining)"
+                            "Daily tasks: set",
+                            "Partial (" + (", ".join(why) if why else "still open") + ")",
                         )
                 else:
                     self.log("Daily tasks failed. Not marked as done for today.")
@@ -4432,10 +4466,24 @@ class AutoRewarderAPI:
                     pass
                 self._try_scrape_balance()
                 if not self._stop_event.is_set():
-                    if success:
-                        self.daily_set.mark_as_completed()
+                    live_now = getattr(self.daily_set, "live_progress", {}) or {}
+                    if success and not self.daily_set.day_still_open(
+                        live_now, totals
+                    ):
+                        marked = self.daily_set.mark_as_completed()
+                        if marked is False:
+                            self.log(
+                                "Daily Set cards done, but claim/punchcards still "
+                                "open — not marking the day done."
+                            )
+                        else:
+                            self.log(
+                                "Daily Set tasks completed and marked as done for today."
+                            )
+                    elif success:
                         self.log(
-                            "Daily Set tasks completed and marked as done for today."
+                            "Daily Set cards done, but claim/punchcards still "
+                            "open — not marking the day done."
                         )
                     else:
                         self.log("Daily Set failed. Not marked as done for today.")
