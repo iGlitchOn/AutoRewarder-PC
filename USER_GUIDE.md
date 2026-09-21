@@ -62,6 +62,15 @@ Welcome! This guide will help you get started with AutoRewarder and explain all 
 
 **That's it!** Installer handles everything for you.
 
+### Uninstall
+
+1. Open **Settings → Apps → AutoRewarder → Uninstall**, or **Start → AutoRewarder → Uninstall AutoRewarder**.
+2. If the app is running (including the tray icon), the uninstaller force-closes it. A normal window close is not enough: **Close to tray** hides the window and leaves the process alive.
+3. Choose whether to delete `%LOCALAPPDATA%\AutoRewarder` (accounts, Edge profiles, history, settings). Yes removes everything the app stored. No leaves that folder so a reinstall can reuse the same accounts.
+4. Scheduled tasks named `AutoRewarder` / `AutoRewarder.<account>`, the `AutoRewarderGUI` sign-in registry value, and a leftover Startup shortcut are removed either way.
+
+Deleting `C:\Program Files\AutoRewarder` by hand does not uninstall. The portable ZIP has no uninstaller: quit the exe, then delete the extracted folder and `%LOCALAPPDATA%\AutoRewarder`.
+
 ---
 
 ## First Run & Setup
@@ -417,6 +426,6 @@ A: Currently, the pre-built installer and standalone executable are only availab
 
 **Last Updated**: August 2026
 
-**Version**: 4.3.34
+**Version**: 4.3.35
 
 Enjoy using AutoRewarder! 🎉

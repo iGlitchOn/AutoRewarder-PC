@@ -2,7 +2,7 @@
 
 AutoRewarder PC es la aplicación de Windows que centraliza las búsquedas y tareas de Microsoft Rewards desde una interfaz gráfica. También puede coordinarse con la aplicación móvil para enviar comandos, consultar el estado del teléfono y ejecutar las búsquedas móviles disponibles.
 
-> Versión documentada: **4.3.34**<br>
+> Versión documentada: **4.3.35**<br>
 > Este repositorio: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)<br>
 > **Fork de** [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder)
 
@@ -92,6 +92,15 @@ Por eso puedes actualizar el programa portable sin borrar las cuentas ni el hist
 5. Abre AutoRewarder desde el acceso directo.
 
 La instalación incluye los archivos necesarios para ejecutar la interfaz y el motor de automatización. Microsoft Edge debe estar instalado y la cuenta debe poder iniciar sesión normalmente en Bing y Microsoft Rewards.
+
+## Desinstalación
+
+1. Cierra AutoRewarder desde la bandeja si el icono sigue ahí, o deja que el desinstalador lo mate.
+2. En Windows: **Configuración → Aplicaciones → AutoRewarder → Desinstalar**, o el acceso **Uninstall AutoRewarder** del menú Inicio.
+3. Confirma si también quieres borrar cuentas, perfiles de Edge, historial y ajustes (`%LOCALAPPDATA%\AutoRewarder`).
+4. El desinstalador cierra `AutoRewarder.exe` (aunque esté en la bandeja), quita las tareas programadas `AutoRewarder*`, las claves de inicio `AutoRewarder` / `AutoRewarderGUI` y el acceso de Startup.
+
+Borrar solo `C:\Program Files\AutoRewarder` no desinstala: la app puede seguir en bandeja y los datos quedan en AppData. La versión portable no tiene desinstalador: cierra el exe y borra la carpeta del ZIP **y** `%LOCALAPPDATA%\AutoRewarder`.
 
 ## Primer inicio, paso a paso
 
