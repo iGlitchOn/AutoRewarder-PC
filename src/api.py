@@ -3852,11 +3852,25 @@ class AutoRewarderAPI:
         if self.daily_set is None or self.driver_manager is None:
             return
 
-        from .dailytasks.bing_app import BingAppTasks
+        from .dailytasks.bing_app import BingAppTasks, news_unoffered_detail
+        from .search.locale import bing_app_market
 
         self.log("=== [7/8] + [8/8] Mobile app — verifying live counters ===")
-        tasks = BingAppTasks(logger=self.log)
-        phone_checkin = self._phone_try("checkin", timeout=45)
+        settings = {}
+        profile = {}
+        try:
+            settings = self.global_settings.get_settings() or {}
+        except Exception:
+            settings = {}
+        try:
+            if self.account_meta is not None:
+                profile = self.account_meta.get_rewards_profile() or {}
+        except Exception:
+            profile = {}
+        market = bing_app_market(settings, profile)
+        tasks = BingAppTasks(logger=self.log, market=market)
+        # BingTasks on the phone waits up to 90s. This wait has to cover that.
+        phone_checkin = self._phone_try("checkin", timeout=180)
         if phone_checkin is not None:
             if phone_checkin.get("ok"):
                 self.log("[7/8] Mobile check-in — completed on the linked phone.")
@@ -3879,7 +3893,7 @@ class AutoRewarderAPI:
                     phone_checkin.get("detail") or "phone job failed",
                 )
             self._notify_progress()
-        phone_news = self._phone_try("news", timeout=45)
+        phone_news = self._phone_try("news", timeout=180)
         if phone_news is not None:
             if phone_news.get("ok"):
                 self.log("[8/8] News — credited on the linked phone.")
@@ -3903,7 +3917,9 @@ class AutoRewarderAPI:
             )
 
         try:
-            self._driver = self.driver_manager.setup_driver(mobile=True, bing_app=True)
+            self._driver = self.driver_manager.setup_driver(
+                mobile=True, bing_app=True, market=market
+            )
         except Exception:
             if self._stop_event.is_set():
                 self.log("Stopped.")
@@ -3987,11 +4003,20 @@ class AutoRewarderAPI:
                 and int(news_frac[1]) > 0
             )
             if not news_offered:
-                self.log(
-                    "[8/8] News — no read-to-earn counter on this account. "
-                    "The news quiz lives under More activities. Skipping."
-                )
-                self._report("News", "skip", "not offered (quiz is a More activity)")
+                tile = bool(live.get("hasNews") or live.get("news_tile"))
+                detail = news_unoffered_detail(news_frac, tile)
+                if tile:
+                    self.log(
+                        "[8/8] News — check-in/news tile is on the page. "
+                        "readArticle is not on getuserinfo, so this run "
+                        "does not mark it done."
+                    )
+                else:
+                    self.log(
+                        "[8/8] News — no read-to-earn counter on this account. "
+                        "The news quiz lives under More activities. Skipping."
+                    )
+                self._report("News", "skip", detail)
             elif news_done:
                 self.log(
                     f"[8/8] News — already complete on phone client "
@@ -4003,7 +4028,7 @@ class AutoRewarderAPI:
                 )
             elif not self._stop_event.is_set():
                 self.log(
-                    "[8/8] News — Bing phone client (Colombia). "
+                    f"[8/8] News — Bing phone client ({market}). "
                     "PC dashboard does not show this; the app does."
                 )
                 ok = tasks.read_news(self._driver, stop_event=self._stop_event)

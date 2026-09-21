@@ -169,7 +169,12 @@ class DriverManager:
     DESKTOP_WINDOW_SIZE = "1920,1080"
 
     def setup_driver(
-        self, headless=None, disable_identity=False, mobile=False, bing_app=False
+        self,
+        headless=None,
+        disable_identity=False,
+        mobile=False,
+        bing_app=False,
+        market=None,
     ):
         """
         Set up the Selenium WebDriver for MS Edge using this manager's profile.
@@ -349,25 +354,27 @@ class DriverManager:
             except Exception:
                 # CDP is best-effort; fall back to the UA+window-size flags.
                 pass
-            if bing_app:
-                # Phone Bing app in Colombia: news / check-in / read-to-earn
-                # are served for es-CO, not the US desktop dashboard.
+            if bing_app and market:
+                # Same setmkt as bing_app.py. Bogotá only for a CO market,
+                # so an en-US Windows locale does not mix with es-CO.
+                mkt = str(market)
                 try:
                     _driver.execute_cdp_cmd(
-                        "Emulation.setLocaleOverride", {"locale": "es-CO"}
+                        "Emulation.setLocaleOverride", {"locale": mkt}
                     )
-                    _driver.execute_cdp_cmd(
-                        "Emulation.setTimezoneOverride",
-                        {"timezoneId": "America/Bogota"},
-                    )
-                    _driver.execute_cdp_cmd(
-                        "Emulation.setGeolocationOverride",
-                        {
-                            "latitude": 4.711,
-                            "longitude": -74.0721,
-                            "accuracy": 100,
-                        },
-                    )
+                    if mkt.upper().endswith("-CO"):
+                        _driver.execute_cdp_cmd(
+                            "Emulation.setTimezoneOverride",
+                            {"timezoneId": "America/Bogota"},
+                        )
+                        _driver.execute_cdp_cmd(
+                            "Emulation.setGeolocationOverride",
+                            {
+                                "latitude": 4.711,
+                                "longitude": -74.0721,
+                                "accuracy": 100,
+                            },
+                        )
                 except Exception:
                     pass
 

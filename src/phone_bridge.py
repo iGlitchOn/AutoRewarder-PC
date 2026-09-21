@@ -533,6 +533,19 @@ class PhoneBridge:
             if (now - float(p.get("last_seen_ts") or 0)) < PHONE_ONLINE_SEC
         ]
 
+    def bing_market(self):
+        """setmkt the linked phone should use for check-in and news."""
+        try:
+            from .search.locale import bing_app_market
+
+            settings = self.api.global_settings.get_settings() or {}
+            profile = {}
+            if self.api.account_meta is not None:
+                profile = self.api.account_meta.get_rewards_profile() or {}
+            return bing_app_market(settings, profile)
+        except Exception:
+            return ""
+
     def phones_for_jobs(self):
         """Phones that can still take a job (recent heartbeat, or a stored token)."""
         online = self._online_phones()
@@ -976,6 +989,7 @@ class PhoneBridge:
                             "ui_locale": getattr(
                                 bridge.api, "ui_locale", lambda: "en"
                             )(),
+                            "market": bridge.bing_market(),
                         },
                     )
                 if path == "/jobs":
@@ -985,6 +999,7 @@ class PhoneBridge:
                     bridge._prune_jobs()
                     pending = []
                     pid = str(phone.get("id") or "")
+                    market = bridge.bing_market()
                     with bridge._lock:
                         for job in list(bridge._jobs.values()):
                             if job["status"] != "queued":
@@ -1000,6 +1015,8 @@ class PhoneBridge:
                                     "id": job["id"],
                                     "kind": job["kind"],
                                     "detail": job.get("detail") or "",
+                                    "market": market,
+                                    "timeout": 180,
                                 }
                             )
                     return self._json(200, {"ok": True, "jobs": pending})

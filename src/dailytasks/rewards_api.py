@@ -23,6 +23,30 @@ SKIP_URL_RE = re.compile(
 )
 
 
+def _is_news_tile(parent):
+    """True when a promotion is the check-in/news read tile, not a quiz."""
+    if not isinstance(parent, dict):
+        return False
+    ptype = str(parent.get("promotionType") or "").lower()
+    title = " ".join(
+        str(parent.get(k) or "") for k in ("name", "title", "description")
+    ).lower()
+    if "quiz" in ptype and "noticia" not in title and "news" not in title:
+        return False
+    if ptype in ("readarticle", "news", "readtoearn"):
+        return True
+    return any(
+        needle in title
+        for needle in (
+            "read to earn",
+            "read article",
+            "news article",
+            "noticias",
+            "noticia",
+        )
+    )
+
+
 def is_rewards_quest_url(url):
     """True for Rewards punchcards /earn/quest pages the bot should try."""
     u = (url or "").lower()
@@ -213,6 +237,16 @@ def parse_userinfo(data):
     if not checkin:
         # Keep absence distinct from 1/1 so the UI cannot inherit Search 1/1.
         out.setdefault("checkin", None)
+
+    for promo in list(dash.get("promotionalItems") or []) + list(
+        dash.get("morePromotions") or []
+    ):
+        if not isinstance(promo, dict):
+            continue
+        parent = promo.get("parentPromotion") or promo
+        if _is_news_tile(parent):
+            out["news_tile"] = True
+            break
 
     punchcards = []
     for card in dash.get("punchCards") or []:

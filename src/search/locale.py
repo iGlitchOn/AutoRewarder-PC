@@ -169,3 +169,32 @@ def resolve_search_locale(settings, logger=None):
     if logger:
         logger(f"Search locale auto-detected: {resolved}")
     return resolved
+
+
+def bing_app_market(settings=None, profile=None):
+    """setmkt for Bing check-in and read-to-earn.
+
+    Windows and Edge often report en-US in Colombia. A Colombia Rewards
+    profile (country, es-CO, or America/Bogota) uses es-CO. Otherwise the
+    explicit search locale, then detected_locale, then detect_system_locale.
+    """
+    settings = settings or {}
+    profile = profile or {}
+    tz = str(profile.get("timezone") or "")
+    country = str(profile.get("country") or "").strip().lower()
+    loc = str(profile.get("locale") or "").replace("_", "-")
+    if (
+        "bogota" in tz.lower()
+        or country in ("colombia", "co")
+        or loc.upper().endswith("-CO")
+    ):
+        return "es-CO"
+    raw = str(settings.get("search_locale") or "").strip()
+    if raw and raw.lower() != "auto":
+        norm = _normalize(raw)
+        if norm:
+            return norm
+    detected = _normalize(settings.get("detected_locale"))
+    if detected:
+        return detected
+    return detect_system_locale() or "en-US"
