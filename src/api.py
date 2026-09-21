@@ -48,6 +48,7 @@ from .stats import (
     StatsManager,
     scrape_points_balance,
     scrape_points_balance_debug,
+    derive_display_points,
     POINTS_PER_SEARCH,
     POINTS_PER_CARD,
 )
@@ -537,10 +538,12 @@ class AutoRewarderAPI:
             driver = self._driver
             if driver is None:
                 return
-            try:
-                balance = scrape_points_balance(driver)
-            except Exception:
-                balance = None
+            balance = self._available_points_from_userinfo()
+            if balance is None:
+                try:
+                    balance = scrape_points_balance(driver)
+                except Exception:
+                    balance = None
             if balance is not None:
                 self._persist_live_balance(account_id, balance)
             return
@@ -2480,59 +2483,20 @@ class AutoRewarderAPI:
     def get_stats(self):
         """
         Return the current account's statistics for the dashboard, augmented
-        with a couple of derived convenience fields the UI displays directly:
+        with derived fields the UI displays directly:
 
-          * total_points — the real scraped balance when available, else the
-            cumulative estimate. `is_estimate` flags which one it is.
-          * session_points — points earned in the last recorded run: the real
-            balance delta when available, otherwise the activity estimate.
+          * total_points — scraped / getuserinfo balance, or None (UI shows —).
+          * today_points — end_balance - start_balance for today, or None.
 
-        Returns None when no account is selected.
+        POINTS_PER_* never fills either field. Returns None when no account
+        is selected.
         """
         if self.stats is None:
             return None
         data = self._with_inflight_stats(self.stats.get_stats())
+        data["derived"] = derive_display_points(data)
 
-        balance = data["balance"]["current"]
-        last = data["last_session"]
-        is_estimate = balance is None
-        estimate_total = data["lifetime"]["points_estimate"]
-        total_points = balance if balance is not None else estimate_total
-
-        ended_at = last.get("ended_at")
-        today = datetime.now().date().isoformat()
-        bucket = (data.get("daily") or {}).get(today) or {}
-        today_est = (
-            int(bucket.get("pc") or 0) + int(bucket.get("mobile") or 0)
-        ) * POINTS_PER_SEARCH + (
-            int(bucket.get("cards") or 0)
-            + int(bucket.get("earn") or 0)
-            + int(bucket.get("quests") or 0)
-        ) * POINTS_PER_CARD
-        start_bal = bucket.get("start_balance")
-        end_bal = balance if isinstance(balance, int) else bucket.get("end_balance")
-        if isinstance(start_bal, int) and isinstance(end_bal, int):
-            today_points = int(end_bal) - int(start_bal)
-            today_is_estimate = False
-        elif bucket.get("points_delta") is not None:
-            today_points = int(bucket.get("points_delta") or 0)
-            today_is_estimate = False
-        else:
-            today_points = int(bucket.get("points_estimate") or today_est)
-            today_is_estimate = True
-        data["derived"] = {
-            "total_points": total_points,
-            "is_estimate": is_estimate,
-            "session_points": today_points,
-            "session_is_estimate": today_is_estimate,
-            "last_run_at": ended_at,
-            "last_run_date": today,
-            "today_points": today_points,
-            "today_is_estimate": today_is_estimate,
-        }
-
-        # Per-item point values, so the dashboard can split a day's bar into
-        # searches vs daily without hard-coding the constants.
+        # Kept for the dashboard debug chart of activity, not the hero total.
         data["constants"] = {
             "points_per_search": POINTS_PER_SEARCH,
             "points_per_card": POINTS_PER_CARD,
@@ -2557,11 +2521,9 @@ class AutoRewarderAPI:
                     "id": acc["id"],
                     "label": acc["label"],
                     "total_points": (
-                        balance
-                        if balance is not None
-                        else stats["lifetime"]["points_estimate"]
+                        balance if isinstance(balance, int) else None
                     ),
-                    "is_estimate": balance is None,
+                    "is_estimate": not isinstance(balance, int),
                     "lifetime_runs": stats["lifetime"]["runs"],
                     "pc_searches": stats["lifetime"]["pc_searches"],
                     "mobile_searches": stats["lifetime"]["mobile_searches"],
@@ -2823,8 +2785,8 @@ class AutoRewarderAPI:
             "account": {"id": account_id},
             "profile": profile,
             "estimate": {
-                "search_points": (pc_target + mobile_target) * POINTS_PER_SEARCH,
-                "note": "Search estimate only; Daily tasks and promotions vary by account.",
+                "search_points": None,
+                "note": "Balance comes from scrape / getuserinfo, never POINTS_PER_*.",
             },
             "progress": {
                 "pc": self._progress_from_frac(
@@ -2969,6 +2931,14 @@ class AutoRewarderAPI:
             time.sleep(2.5)
 
             for _ in range(attempts):
+                try:
+                    from .dailytasks.rewards_api import fetch_userinfo, parse_userinfo
+
+                    pts = parse_userinfo(fetch_userinfo(driver)).get("available_points")
+                    if isinstance(pts, int) and pts >= 0:
+                        return pts
+                except Exception:
+                    pass
                 info = scrape_points_balance_debug(driver)
                 self._last_balance_debug = info
                 value = info.get("value")
@@ -3480,19 +3450,73 @@ class AutoRewarderAPI:
 
     def _try_scrape_balance(self):
         """
-        Best-effort read of the real points balance from the page the active
-        driver is currently on. Only updates `_last_scraped_balance` on a
-        successful read, so a later SERP miss never clobbers a good value
-        scraped earlier from the rewards dashboard.
+        Best-effort read of the real points balance from getuserinfo, then
+        the DOM. Only updates `_last_scraped_balance` on a successful read,
+        so a later SERP miss never clobbers a good value.
         """
         if self._driver is None:
             return
-        try:
-            value = scrape_points_balance(self._driver, self.log)
-        except Exception:
-            value = None
+        value = self._available_points_from_userinfo()
+        if value is None:
+            try:
+                value = scrape_points_balance(self._driver, self.log)
+            except Exception:
+                value = None
         if value is not None:
             self._last_scraped_balance = value
+
+    def _available_points_from_userinfo(self):
+        """getuserinfo.availablePoints, or None. Does not navigate."""
+        if self._driver is None:
+            return None
+        try:
+            from .dailytasks.rewards_api import fetch_userinfo, parse_userinfo
+
+            pts = parse_userinfo(fetch_userinfo(self._driver)).get("available_points")
+        except Exception:
+            return None
+        if isinstance(pts, int) and pts >= 0:
+            return pts
+        return None
+
+    def _search_cap_hit(self, mobile, after_n=0, navigate=False):
+        """True when getuserinfo says this device's daily search counter is full."""
+        if self._driver is None:
+            return False
+        from .dailytasks.rewards_api import (
+            fetch_userinfo,
+            parse_userinfo,
+            counter_complete,
+        )
+
+        kind = "mobile" if mobile else "pc"
+        should_nav = navigate or after_n == 1 or (after_n > 0 and after_n % 5 == 0)
+        if should_nav:
+            try:
+                self._driver.get("https://rewards.bing.com/")
+            except Exception:
+                pass
+        try:
+            parsed = parse_userinfo(fetch_userinfo(self._driver))
+        except Exception:
+            parsed = {}
+        pts = parsed.get("available_points")
+        if isinstance(pts, int) and pts >= 0:
+            self._last_scraped_balance = pts
+            try:
+                if self.stats is not None:
+                    self.stats.update_balance(pts)
+                    self._notify_stats_refresh()
+            except Exception:
+                pass
+        if counter_complete(parsed, kind):
+            pair = parsed.get(kind)
+            self.log(
+                f"{kind} search cap reached ({pair[0]}/{pair[1]}) — "
+                "stopping remaining queries."
+            )
+            return True
+        return False
 
     def _record_session_stats(self):
         """
@@ -4297,15 +4321,23 @@ class AutoRewarderAPI:
                 self._session_counts[bucket] += 1
                 self._notify_progress()
 
+            def _should_stop(n):
+                return self._search_cap_hit(mobile, after_n=n)
+
             done = 0
+            cap_skip = self._search_cap_hit(mobile, after_n=0, navigate=True)
+            if cap_skip:
+                queries_to_search = []
             try:
-                done = self.search_engine.perform_searches(
-                    self._driver,
-                    queries_to_search,
-                    mobile=mobile,
-                    stop_event=self._stop_event,
-                    on_success=_on_search,
-                )
+                if queries_to_search:
+                    done = self.search_engine.perform_searches(
+                        self._driver,
+                        queries_to_search,
+                        mobile=mobile,
+                        stop_event=self._stop_event,
+                        on_success=_on_search,
+                        should_stop=_should_stop,
+                    )
             except Exception as e:
                 self.log(
                     f"[WARNING] {label}: searches interrupted ({e}). Reopening Edge."
@@ -4323,15 +4355,28 @@ class AutoRewarderAPI:
                             mobile=mobile,
                             stop_event=self._stop_event,
                             on_success=_on_search,
+                            should_stop=_should_stop,
                         )
                         done = int(done or 0) + int(extra or 0)
                     except Exception as e2:
                         self.log(f"[ERROR] {label}: remaining searches failed ({e2}).")
+            if cap_skip and int(done or 0) == 0:
+                search_ok = "skip"
+                search_detail = "cap reached"
+            elif int(done or 0) > 0:
+                search_ok = True
+                search_detail = f"{int(done or 0)}/{count}" + (
+                    " · Bing phone client" if mobile else ""
+                )
+            else:
+                search_ok = False
+                search_detail = f"{int(done or 0)}/{count}" + (
+                    " · Bing phone client" if mobile else ""
+                )
             self._report(
                 f"Search: {'Mobile' if mobile else 'PC'}",
-                True if int(done or 0) > 0 else False,
-                f"{int(done or 0)}/{count}"
-                + (" · Bing phone client" if mobile else ""),
+                search_ok,
+                search_detail,
             )
 
             ran_daily_set = False

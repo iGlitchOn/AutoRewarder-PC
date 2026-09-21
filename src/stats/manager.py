@@ -1,17 +1,10 @@
 """
 Statistics storage + points-balance scraping for a single account.
 
-Two complementary data sources feed the dashboard (see the design choice in
-the GUI):
-
-  * Activity counters — exact counts of PC / Mobile searches and Daily Set
-    cards completed, accumulated from each run. These drive an *estimated*
-    points figure (counters x per-item constants) used as a fallback when the
-    real balance can't be scraped.
-  * Real balance — the actual "available points" number scraped from
-    rewards.bing.com at the end of a run that visits it. This is the source of
-    truth for the total, and successive scrapes give the points delta for a
-    session.
+The hero total is the scraped / getuserinfo availablePoints balance only.
+Activity counters (PC / mobile searches, cards) stay on disk for the
+debug chart. POINTS_PER_* is an internal estimate of that activity and
+must never be shown as the account balance.
 
 Persistence mirrors HistoryManager: atomic temp-file writes and graceful
 recovery (back up + reset) when the JSON file is unreadable.
@@ -21,9 +14,7 @@ import os
 import json
 from datetime import datetime
 
-# Microsoft Rewards awards roughly these points per item. Used ONLY for the
-# estimated-points figure shown when no real balance has been scraped yet;
-# the scraped balance always takes precedence as the source of truth.
+# Internal activity estimate only (debug chart). Never shown as the hero total.
 POINTS_PER_SEARCH = 3
 POINTS_PER_CARD = 10
 
@@ -41,7 +32,7 @@ _DAILY_KEEP = 90
 # what each selector matched, logged when value is null so the real (locale-
 # and version-dependent) DOM can be diagnosed without a live debugger.
 # Defensive throughout: any DOM shift just yields a null value and the caller
-# falls back to the estimate rather than crashing.
+# shows a dash rather than an invented total.
 _SCRAPE_BALANCE_JS = r"""
 return (function () {
   function toInt(raw) {
@@ -186,6 +177,45 @@ def scrape_points_balance(driver, logger=None):
     # available via scrape_points_balance_debug() for the dashboard's on-demand
     # refresh diagnostic.
     return None
+
+
+def derive_display_points(data):
+    """Hero numbers: scraped / getuserinfo balance only. Never POINTS_PER_*.
+
+    Args:
+        data (dict): a stats.json structure (lifetime / balance / daily).
+
+    Returns:
+        dict with total_points (int|None), today_points (int|None),
+        is_estimate (True when no real balance), and a debug_estimate that
+        the UI may show in a corner.
+    """
+    data = data or {}
+    balance = (data.get("balance") or {}).get("current")
+    if not isinstance(balance, int):
+        balance = None
+    today = datetime.now().date().isoformat()
+    bucket = (data.get("daily") or {}).get(today) or {}
+    start_bal = bucket.get("start_balance")
+    end_bal = balance if isinstance(balance, int) else bucket.get("end_balance")
+    today_points = None
+    if isinstance(start_bal, int) and isinstance(end_bal, int):
+        today_points = int(end_bal) - int(start_bal)
+    last = data.get("last_session") or {}
+    ended_at = last.get("ended_at")
+    debug_estimate = int((data.get("lifetime") or {}).get("points_estimate") or 0)
+    missing = today_points is None
+    return {
+        "total_points": balance,
+        "is_estimate": balance is None,
+        "session_points": today_points,
+        "session_is_estimate": missing,
+        "last_run_at": ended_at,
+        "last_run_date": today,
+        "today_points": today_points,
+        "today_is_estimate": missing,
+        "debug_estimate": debug_estimate,
+    }
 
 
 class StatsManager:

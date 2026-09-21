@@ -576,14 +576,12 @@ function show_stats() {
 }
 
 /**
- * Format a points number for the compact card: thousands separators, with a
- * leading "~" when the figure is an estimate (no real balance scraped yet).
+ * Format a scraped points number. Estimates are a dash, never "~3582".
  */
 function _fmt_points(value, isEstimate) {
-  if (value == null || isNaN(value)) return '—';
+  if (value == null || isNaN(value) || isEstimate === true) return '—';
   const sign = value > 0 && isEstimate === 'delta' ? '+' : '';
-  const prefix = (isEstimate === true && value > 0) ? '~' : '';
-  return prefix + sign + Number(value).toLocaleString();
+  return sign + Number(value).toLocaleString();
 }
 
 /**
@@ -634,13 +632,11 @@ function refresh_stats_ui() {
       return;
     }
     const d = stats.derived;
-    if (totalEl) totalEl.textContent = _fmt_points(d.total_points, d.is_estimate);
-    if (totalLabel) {
-      totalLabel.textContent = d.is_estimate ? 'Total points (est.)' : 'Total points';
-    }
+    if (totalEl) totalEl.textContent = _fmt_points(d.is_estimate ? null : d.total_points, false);
+    if (totalLabel) totalLabel.textContent = 'Total points';
     if (sessionEl) {
-      const flag = d.session_is_estimate ? true : 'delta';
-      sessionEl.textContent = _fmt_points(d.today_points != null ? d.today_points : d.session_points, flag);
+      const today = d.today_is_estimate ? null : (d.today_points != null ? d.today_points : d.session_points);
+      sessionEl.textContent = _fmt_points(today, today == null ? true : 'delta');
     }
     const dateEl = document.getElementById('stat_session_date');
     if (dateEl) {
@@ -659,13 +655,13 @@ function refresh_rewards_overview() {
     if (!info || !info.account || info.account.id !== currentAccountId) return;
     const profile = info.profile || {};
     const progress = info.progress || {};
-    const estimate = info.estimate || {};
     const level = profile.membership || (profile.level ? `Level ${profile.level}` : 'Membership unavailable');
     const region = profile.country || profile.locale || 'Region unknown';
     const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
     set('rewards_level', level);
     set('rewards_region', region);
-    set('rewards_estimate', `Search estimate: ~${estimate.search_points || 0} pts/day`);
+    const estEl = document.getElementById('rewards_estimate');
+    if (estEl) estEl.hidden = true;
     const leftover = (obj, fallback) => {
       if (obj && typeof obj === 'object' && obj.label) {
         const left = obj.left;

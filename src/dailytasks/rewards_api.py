@@ -29,14 +29,17 @@ def skip_offer(title, url=""):
 
 
 def fetch_userinfo(driver):
-    """GET /api/getuserinfo in the logged-in Rewards session. None on failure."""
+    """GET getuserinfo in the logged-in Rewards session. None on failure.
+
+    Absolute URL so a Bing SERP can still hit the Rewards API.
+    """
     if driver is None:
         return None
     try:
         driver.set_script_timeout(18)
         return driver.execute_async_script("""
             const done = arguments[0];
-            fetch('/api/getuserinfo?type=1', {
+            fetch('https://rewards.bing.com/api/getuserinfo?type=1', {
               credentials: 'include',
               headers: {Accept: 'application/json'}
             })
@@ -64,13 +67,25 @@ def _first_counter(counters, *names):
     return None
 
 
+def counter_complete(parsed, key):
+    """True when getuserinfo reports this counter as already full (e.g. 1/1)."""
+    pair = (parsed or {}).get(key)
+    if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+        return False
+    try:
+        done, total = int(pair[0]), int(pair[1])
+    except (TypeError, ValueError):
+        return False
+    return total > 0 and done >= total
+
+
 def parse_userinfo(data):
     """
     Flatten getuserinfo into counters the rest of the app already uses.
 
     Returns:
-        dict with optional keys: pc, mobile, news, daily, checkin, claim,
-        punchcards (list of {url,title,done,total,complete}).
+        dict with optional keys: available_points, pc, mobile, news, daily,
+        checkin, claim, punchcards (list of {url,title,done,total,complete}).
     """
     out = {}
     if not isinstance(data, dict):
@@ -80,6 +95,12 @@ def parse_userinfo(data):
         return out
     status = dash.get("userStatus") or {}
     counters = status.get("counters") or {}
+
+    pts = status.get("availablePoints")
+    if pts is None:
+        pts = status.get("available_points")
+    if isinstance(pts, (int, float)) and not isinstance(pts, bool) and pts >= 0:
+        out["available_points"] = int(pts)
 
     pc = _first_counter(counters, "pcSearch", "pcsearch")
     if pc:

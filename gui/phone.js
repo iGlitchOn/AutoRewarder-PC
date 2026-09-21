@@ -657,8 +657,10 @@ async function refreshOverview() {
     const running = !!data.running;
     applyPcButtons(running);
     const derived = data.stats || {};
-    if (derived.total_points != null) set("stat_total", String(derived.total_points));
-    if (derived.today_points != null) set("stat_today", String(derived.today_points));
+    const totalOk = derived.total_points != null && !derived.is_estimate;
+    const todayOk = derived.today_points != null && !derived.today_is_estimate;
+    set("stat_total", totalOk ? String(derived.total_points) : "—");
+    set("stat_today", todayOk ? String(derived.today_points) : "—");
     const q = data.queries || {};
     const pcEl = document.getElementById("count_pc");
     const mobEl = document.getElementById("count_mobile");

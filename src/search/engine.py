@@ -174,7 +174,13 @@ class SearchEngine:
             return random.randint(10, 15)
 
     def perform_searches(
-        self, driver, queries, mobile=False, stop_event=None, on_success=None
+        self,
+        driver,
+        queries,
+        mobile=False,
+        stop_event=None,
+        on_success=None,
+        should_stop=None,
     ):
         """
         Perform searches on Bing using Selenium WebDriver with human-like behavior.
@@ -187,12 +193,13 @@ class SearchEngine:
             stop_event (threading.Event, optional): If provided and set, the
                 loop bails out at the next checkpoint and any in-progress
                 coffee break is interrupted immediately.
-            on_success (callable, optional): Called with the running success
-                count after each credited search so the UI can update live.
+            on_success (callable, optional): Called with the running SERP-ok
+                count after each search that loaded results.
+            should_stop (callable, optional): Called with that count after each
+                SERP ok. Return True to halt remaining queries (search cap).
 
         Returns:
-            int: the number of searches that completed successfully (used by
-                the stats layer to record activity for this run).
+            int: the number of searches whose SERP loaded (not Microsoft credit).
         """
 
         human = HumanBehavior(
@@ -394,12 +401,18 @@ class SearchEngine:
                     self._add_to_history(f"Search: {query}", "[ERROR] Timed out")
                     continue
 
-                # Add to history.json
-                self._add_to_history(f"Search: {query}", "Success")
+                # SERP loaded. This is not proof Microsoft credited the search.
+                self._add_to_history(f"Search: {query}", "SERP ok")
                 successful += 1
                 if callable(on_success):
                     try:
                         on_success(successful)
+                    except Exception:
+                        pass
+                if callable(should_stop):
+                    try:
+                        if should_stop(successful):
+                            return successful
                     except Exception:
                         pass
 

@@ -84,12 +84,13 @@
           <span class="metric-label">Runs</span>
         </div>
       </div>
+      <div id="debug_estimate" class="dash-debug" hidden></div>
     </section>
 
     <!-- Recent activity bar chart (per day, stacked by type) -->
     <section class="dash-section">
       <div class="dash-section-head">
-        <div class="dash-section-title">Recent activity (estimated points / day)</div>
+        <div class="dash-section-title">Recent activity (searches / cards per day)</div>
         <div class="chart-legend">
           <span class="legend-item"><span class="legend-dot legend-pc"></span>PC</span>
           <span class="legend-item"><span class="legend-dot legend-mobile"></span>Mobile</span>
@@ -177,27 +178,30 @@
       // A real balance is present → no diagnostic needed.
       if (!d.is_estimate) hide_diag();
 
-      // Hero — total.
+      // Hero — total. Scraped / getuserinfo only; never POINTS_PER_*.
       const totalEl = document.getElementById('total_points');
       const totalLabel = document.getElementById('total_label');
       const totalSub = document.getElementById('total_sub');
-      totalEl.textContent = (d.is_estimate && d.total_points > 0 ? '~' : '') + fmt(d.total_points);
-      totalLabel.textContent = d.is_estimate ? 'Total points (estimated)' : 'Total points';
+      totalEl.textContent = d.is_estimate ? '—' : fmt(d.total_points);
+      totalLabel.textContent = 'Total points';
       if (d.is_estimate) {
-        totalSub.textContent = 'Estimated from activity — run with Daily tasks to capture the real balance.';
+        totalSub.textContent = 'No scraped balance yet — refresh or run Daily tasks.';
       } else {
         const when = fmt_when(stats.balance && stats.balance.updated_at);
-        totalSub.textContent = when ? ('Real balance · updated ' + when) : 'Real balance';
+        totalSub.textContent = when ? ('Rewards balance · updated ' + when) : 'Rewards balance';
       }
 
-      // Hero — session.
+      // Hero — earned today = end_balance - start_balance, else dash.
       const sessEl = document.getElementById('session_points');
       const sessSub = document.getElementById('session_sub');
-      const todayPts = d.today_points != null ? d.today_points : d.session_points;
       const todayEst = d.today_is_estimate != null ? d.today_is_estimate : d.session_is_estimate;
-      const sessSign = (!todayEst && todayPts > 0) ? '+' : '';
-      const sessPrefix = (todayEst && todayPts > 0) ? '~' : sessSign;
-      sessEl.textContent = sessPrefix + fmt(todayPts);
+      const todayPts = todayEst ? null : (d.today_points != null ? d.today_points : d.session_points);
+      if (todayPts == null) {
+        sessEl.textContent = '—';
+      } else {
+        const sessSign = todayPts > 0 ? '+' : '';
+        sessEl.textContent = sessSign + fmt(todayPts);
+      }
       const day = (stats.daily && d.last_run_date && stats.daily[d.last_run_date]) || {};
       const parts = [];
       if (day.pc) parts.push(day.pc + ' PC');
@@ -215,6 +219,13 @@
       document.getElementById('m_earn').textContent = fmt(life.earn_cards || 0);
       document.getElementById('m_quests').textContent = fmt(life.quest_tasks || 0);
       document.getElementById('m_runs').textContent = fmt(life.runs || 0);
+
+      const dbg = document.getElementById('debug_estimate');
+      if (dbg) {
+        const est = (d.debug_estimate != null) ? d.debug_estimate : (life.points_estimate || 0);
+        dbg.hidden = false;
+        dbg.textContent = 'Debug estimate (activity × constants, not the balance): ' + fmt(est);
+      }
 
       render_runs_chart(stats.daily || {}, stats.constants);
     }
@@ -245,33 +256,25 @@
       return Math.max(1, Math.floor((avail + COL_GAP) / (COL_W + COL_GAP)));
     }
 
-    // One stacked bar per day with three segments: PC searches, mobile
-    // searches (both × per-search) and daily (cards × per-card), each its own
-    // colour. Uses the estimate breakdown because the real balance delta can't
-    // be attributed to a type. Columns are fixed-width and packed from the
-    // left; only the most recent days that fit are kept (oldest drop off left).
+    // One stacked bar per day: raw activity counts (searches / cards), not
+    // POINTS_PER_* fake points. Columns packed from the left.
     function render_runs_chart(dailyData, consts) {
       _chartData = { daily: dailyData || {}, consts: consts || null };
       const chart = document.getElementById('runs_chart');
       const empty = document.getElementById('runs_empty');
       while (chart.firstChild) chart.removeChild(chart.firstChild);
 
-      const pps = (consts && consts.points_per_search) || 3;
-      const ppc = (consts && consts.points_per_card) || 10;
-
       // dailyData is { "YYYY-MM-DD": {pc, mobile, cards, earn, quests, runs} }
-      // from the backend. Daily cards, /earn cards and quest tasks each get
-      // their own stacked segment (older records simply lack earn/quests → 0).
       const byDay = new Map();
       for (const key of Object.keys(dailyData || {})) {
         if (key.length !== 10) continue;
         const v = dailyData[key] || {};
         byDay.set(key, {
-          pc: (v.pc || 0) * pps,
-          mobile: (v.mobile || 0) * pps,
-          daily: (v.cards || 0) * ppc,
-          earn: (v.earn || 0) * ppc,
-          quests: (v.quests || 0) * ppc,
+          pc: v.pc || 0,
+          mobile: v.mobile || 0,
+          daily: v.cards || 0,
+          earn: v.earn || 0,
+          quests: v.quests || 0,
         });
       }
 
@@ -314,10 +317,10 @@
 
         const stack = document.createElement('div');
         stack.className = 'bar-stack';
-        stack.title = `${day_label(d)}\nPC: ${fmt(e.pc)} pts` +
-          `\nMobile: ${fmt(e.mobile)} pts\nDaily: ${fmt(e.daily)} pts` +
-          `\nEarn: ${fmt(e.earn)} pts\nQuests: ${fmt(e.quests)} pts` +
-          `\nTotal: ${fmt(total)} pts`;
+        stack.title = `${day_label(d)}\nPC: ${fmt(e.pc)}` +
+          `\nMobile: ${fmt(e.mobile)}\nDaily: ${fmt(e.daily)}` +
+          `\nEarn: ${fmt(e.earn)}\nQuests: ${fmt(e.quests)}` +
+          `\nTotal: ${fmt(total)}`;
 
         for (const seg of SEGMENTS) {
           const div = document.createElement('div');
@@ -371,7 +374,7 @@
 
         const totalTd = document.createElement('td');
         totalTd.className = 'num';
-        totalTd.textContent = (acc.is_estimate && acc.total_points > 0 ? '~' : '') + fmt(acc.total_points);
+        totalTd.textContent = acc.is_estimate ? '—' : fmt(acc.total_points);
 
         const runsTd = document.createElement('td');
         runsTd.className = 'num';
@@ -430,7 +433,7 @@
 
     // isManual=true → user clicked the button: surface errors + the diagnostic
     // box. isManual=false → silent best-effort auto-refresh on open: on failure
-    // just leave the estimate, no scary red box (it may simply be racing the
+    // leave the dash, no scary red box (it may simply be racing the
     // launch-time capture for the same Edge profile).
     function do_refresh_balance(isManual) {
       if (isManual === undefined) isManual = true;
