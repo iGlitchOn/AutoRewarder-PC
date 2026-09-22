@@ -987,12 +987,51 @@ class NewDashboardDailySet:
 
     # -- Top-level entry point -------------------------------------------------
 
+    def _window_is_offscreen(self, driver):
+        try:
+            pos = driver.get_window_position() or {}
+            return int(pos.get("x") or 0) < -500 or int(pos.get("y") or 0) < -500
+        except Exception:
+            return False
+
+    def _ensure_on_screen(self, driver):
+        """hide_browser parks Edge at -32000; Next.js then never paints claim/cards."""
+        self._was_offscreen = self._window_is_offscreen(driver)
+        try:
+            driver.set_window_rect(x=80, y=80, width=1280, height=800)
+        except Exception:
+            try:
+                driver.set_window_position(80, 80)
+                driver.set_window_size(1280, 800)
+            except Exception:
+                return
+        if self._was_offscreen:
+            self._log(
+                "hide_browser had Edge off-screen; moved on-screen so "
+                "Daily Set / claim / punchcards paint."
+            )
+
+    def _restore_off_screen(self, driver):
+        if not getattr(self, "_was_offscreen", False):
+            return
+        try:
+            driver.set_window_position(-32000, -32000)
+        except Exception:
+            pass
+
     def perform(self, driver, human, stop_event=None):
         """
         Verify each Rewards function against the live dashboard, then run or
         skip with a reason. Order: Daily Set, Ready to claim, earn-page,
         punchcards, Edge minutes. Visual Search / mobile app are the caller.
         """
+        self._ensure_on_screen(driver)
+        try:
+            return self._perform_inner(driver, human, stop_event)
+        finally:
+            self._restore_off_screen(driver)
+
+    def _perform_inner(self, driver, human, stop_event=None):
         self.needs_edge_browse = False
         self._for_you_extra = []
         try:

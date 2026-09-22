@@ -565,13 +565,12 @@ class PhoneBridge:
             return ""
 
     def phones_for_jobs(self):
-        """Phones that can still take a job (recent heartbeat, or a stored token)."""
-        online = self._online_phones()
-        if online:
-            return online
-        if self.api.account_meta is None:
-            return []
-        return [p for p in self.api.account_meta.get_phones() if p.get("token")]
+        """Phones that can take a job right now (heartbeat inside PHONE_ONLINE_SEC).
+
+        A stored token is not enough: enqueueing a job for a phone last seen
+        yesterday burns 180s and logs Check-in/News as timeout.
+        """
+        return self._online_phones()
 
     def _prune_jobs(self):
         now = time.time()

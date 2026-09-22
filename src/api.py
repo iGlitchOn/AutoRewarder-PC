@@ -2134,7 +2134,13 @@ class AutoRewarderAPI:
         from .phone_bridge import get_bridge
 
         bridge = get_bridge()
-        if bridge is None or not bridge.phones_for_jobs():
+        if bridge is None:
+            return None
+        if not bridge.phones_for_jobs():
+            self.log(
+                f"Phone {kind}: no heartbeat in the last 15 min — "
+                "not waiting 180s on a dead link."
+            )
             return None
         return bridge.request_and_wait(kind, timeout=timeout)
 
