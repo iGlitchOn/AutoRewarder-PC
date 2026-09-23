@@ -1002,7 +1002,10 @@ function open_settings_modal() {
     if (llmToggle) llmToggle.checked = Boolean(cfg.use_llm_queries);
     if (providerSel && cfg.llm_provider) providerSel.value = cfg.llm_provider;
     if (modelInput) modelInput.value = cfg.llm_model || '';
-    if (keyInput) keyInput.value = cfg.llm_api_key || '';
+    if (keyInput) {
+      keyInput.value = '';
+      keyInput.placeholder = cfg.has_llm_key ? 'Key saved' : 'Your own API key';
+    }
     if (localeInput) localeInput.value = cfg.search_locale || 'auto';
     if (localeHint) {
       const eff = cfg.effective_locale || 'en-US';

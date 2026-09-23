@@ -137,6 +137,7 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
     pc_left = pc
     mobile_left = mobile
     finished = True
+    stopped_batch = 0
 
     for i in range(num_batches):
         # Take from PC first until exhausted, then switch to Mobile.
@@ -158,10 +159,12 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
             if not api.main(batch_pc, batch_mobile, False, False):
                 console_log(f"[ERROR] Batch {i+1} did not complete.")
                 finished = False
+                stopped_batch = i + 1
                 break
         except Exception as e:
             console_log(f"[ERROR] Batch {i+1} failed: {e}")
             finished = False
+            stopped_batch = i + 1
             break
 
         pc_left -= batch_pc
@@ -174,7 +177,10 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
         console_log(f"Sleeping {sleep_time:.1f}s until next batch")
         time.sleep(sleep_time)
 
-    console_log("Scheduled run complete.")
+    if finished:
+        console_log("Scheduled run complete.")
+    else:
+        console_log(f"Scheduled run stopped. Batch {stopped_batch}.")
     return finished
 
 

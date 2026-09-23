@@ -967,7 +967,8 @@ class AutoRewarderAPI:
 
     def get_settings(self):
         """Return global settings (hide_browser, current_account_id, schema_version)."""
-        data = self.global_settings.get_settings()
+        data = dict(self.global_settings.get_settings())
+        data.pop("llm_api_key", None)
         data["app_version"] = CURRENT_VERSION
         data["windows_locale"] = _windows_ui_locale()
         data["ui_locale"] = self.ui_locale()
@@ -1112,11 +1113,15 @@ class AutoRewarderAPI:
         """
         Return the LLM query-generation config plus the effective locale.
 
+        The raw API key stays on disk. Callers only learn whether one is saved.
+
         Returns:
-            dict: use_llm_queries, llm_provider, llm_model, llm_api_key,
+            dict: use_llm_queries, llm_provider, llm_model, has_llm_key,
             search_locale, detected_locale, effective_locale.
         """
-        cfg = self.global_settings.get_llm_config()
+        cfg = dict(self.global_settings.get_llm_config())
+        stored = str(cfg.pop("llm_api_key", "") or "").strip()
+        cfg["has_llm_key"] = bool(stored)
         cfg["effective_locale"] = self.global_settings.get_effective_locale()
         return cfg
 
@@ -3405,19 +3410,20 @@ class AutoRewarderAPI:
             pc_count (int): how many searches to do in the PC phase (ignored if daily_only)
             mobile_count (int): how many searches to do in the Mobile phase (ignored if daily_only)
             daily_only (bool): whether to skip searches and just run the Daily Set
-            stamp_schedule (bool): write last_triggered_date on Done (False for CLI batches)
+            stamp_schedule (bool): write last_triggered_date on Done (False for CLI batches).
+                False runs this batch's counts once and does not enter advanced pacing.
         """
         if self.account_manager.current_id() is None:
             self.log("[ERROR] No account selected. Add one via the dropdown.")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
-            return
+            return False
 
         if self.account_meta is None or not self.account_meta.is_first_setup_done():
             self.log("[ERROR] First Setup has not been completed for this account.")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
-            return
+            return False
 
         daily_only = bool(daily_only)
 
@@ -3438,10 +3444,12 @@ class AutoRewarderAPI:
                 schedule = {}
 
         schedule_enabled = isinstance(schedule, dict) and bool(schedule.get("enabled"))
+        # CLI batches pass stamp_schedule=False and already pace themselves.
         use_advanced = (
             not daily_only
             and schedule_enabled
             and bool(schedule.get("advancedScheduling"))
+            and stamp_schedule
         )
 
         if (

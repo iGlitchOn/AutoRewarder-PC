@@ -318,8 +318,8 @@ class GlobalSettingsManager:
         """Persist the LLM query-generation config.
 
         Unknown providers fall back to "openai"; an empty locale becomes
-        "auto". The API key is stored as-is (plain text) alongside the other
-        settings.
+        "auto". The API key is stored as plain text alongside the other
+        settings. A blank or whitespace-only key leaves the stored key as-is.
         """
         from ..search.llm import SUPPORTED_PROVIDERS
 
@@ -333,7 +333,9 @@ class GlobalSettingsManager:
         settings["use_llm_queries"] = bool(use_llm_queries)
         settings["llm_provider"] = provider
         settings["llm_model"] = str(model or "").strip()
-        settings["llm_api_key"] = str(api_key or "").strip()
+        incoming_key = str(api_key or "").strip()
+        if incoming_key:
+            settings["llm_api_key"] = incoming_key
         settings["search_locale"] = locale
         self.save_settings(settings)
 
