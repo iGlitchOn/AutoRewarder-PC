@@ -838,8 +838,8 @@ function updateBingUi() {
   const readyBtn = document.getElementById("bing_ready_btn");
   if (pill) {
     pill.textContent = !installed
-      ? "Bing: no instalada"
-      : (state.bingReady ? "Bing: lista" : "Bing: instalada");
+      ? t("bing.missing")
+      : (state.bingReady ? t("bing.ready") : t("bing.nosession"));
   }
   if (installBtn) installBtn.hidden = installed;
   if (loginBtn) loginBtn.hidden = !installed || !!state.bingReady;
@@ -849,9 +849,9 @@ function updateBingUi() {
     if (el) el.disabled = !installed || !state.bingReady || !!state.pendingVerify;
   });
   if (!installed) {
-    setBingBanner("Instala Bing (Microsoft). Check-in y noticias solo cuentan en esa app.", true);
+    setBingBanner(t("bing.install_banner"), true);
   } else if (!state.bingReady) {
-    setBingBanner("Abre Bing e inicia sesión con la misma cuenta Microsoft. Luego Check-in / Noticias.", true);
+    setBingBanner(t("bing.session_banner"), true);
   } else {
     setBingBanner("");
   }
@@ -1064,8 +1064,10 @@ function setUpdateBanner(msg, warn) {
   else el.textContent = msg;
   el.classList.toggle("warn", !!warn);
   const download = document.getElementById("update_download_btn");
+  const canDownload = !!(state.pendingPhoneUpdate && state.pendingPhoneUpdate.download_url);
   if (download) {
-    download.disabled = !(state.pendingPhoneUpdate && state.pendingPhoneUpdate.download_url);
+    download.hidden = !canDownload;
+    download.disabled = !canDownload;
   }
 }
 
@@ -1083,7 +1085,7 @@ function downloadPhoneUpdate() {
   const update = state.pendingPhoneUpdate;
   if (!update || !update.download_url || state.phoneUpdateDownloading) return;
   state.phoneUpdateDownloading = true;
-  setUpdateBanner(update.source === "pc" ? "Descargando la actualización desde el PC…" : "Descargando la actualización desde GitHub…");
+  setUpdateBanner(t("updates.phone_down"));
   const download = document.getElementById("update_download_btn");
   if (download) download.disabled = true;
   const n = native();
@@ -1179,10 +1181,10 @@ async function checkPhoneUpdate(manual) {
   state.phoneUpdateCheckRunning = true;
   const watchdog = setTimeout(function () { state.phoneUpdateCheckRunning = false; }, 25000);
   const button = document.getElementById("updates_btn");
-  if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
+  if (manual && button) { button.disabled = true; button.textContent = t("updates.checking"); }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.44") : "4.3.44";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.45") : "4.3.45";
     const mineCode = n && n.appVersionCode ? Number(n.appVersionCode() || 0) : 0;
     const newerThanMine = function (update) {
       if (!update) return false;
@@ -1200,20 +1202,21 @@ async function checkPhoneUpdate(manual) {
     }
     if (pcUpdate && newerThanMine(pcUpdate)) {
       state.pendingPhoneUpdate = pcUpdate;
-      setUpdateBanner("Nueva actualización del PC " + pcUpdate.tag + ". ¿Quieres descargarla?");
+      setUpdateBanner(tf("updates.phone_ask", { tag: pcUpdate.tag }));
     } else if (custom && custom.tag && _phoneReleaseNewer(custom.tag, mine)) {
       state.pendingPhoneUpdate = custom;
       if (custom.download_url) {
-        setUpdateBanner("Nueva actualización propia " + custom.tag + ". ¿Quieres descargarla?");
+        setUpdateBanner(tf("updates.phone_ask", { tag: custom.tag }));
       } else {
-        setUpdateBanner("Nueva versión propia " + custom.tag + ", pero todavía no hay un APK adjunto.", true);
+        state.pendingPhoneUpdate = null;
+        setUpdateBanner(tf("updates.no_installer", { tag: custom.tag }), true);
       }
     } else if (manual) {
       state.pendingPhoneUpdate = null;
       if (customFailed) {
-        setUpdateBanner("No se pudo comprobar GitHub.", true);
+        setUpdateBanner(t("updates.github"), true);
       } else {
-        setUpdateBanner("No hay una actualización propia disponible.");
+        setUpdateBanner(t("updates.phone_none"));
         setTimeout(function () { if (!state.pendingPhoneUpdate) setUpdateBanner(""); }, 4000);
       }
     } else {
@@ -1221,7 +1224,7 @@ async function checkPhoneUpdate(manual) {
       setUpdateBanner("");
     }
   } catch (e) {
-    if (manual) setUpdateBanner("No se pudo comprobar GitHub.", true);
+    if (manual) setUpdateBanner(t("updates.github"), true);
     else {
       state.pendingPhoneUpdate = null;
       setUpdateBanner("");
@@ -1229,7 +1232,7 @@ async function checkPhoneUpdate(manual) {
   } finally {
     clearTimeout(watchdog);
     state.phoneUpdateCheckRunning = false;
-    if (manual && button) { button.disabled = false; button.textContent = "Buscar updates"; }
+    if (manual && button) { button.disabled = false; button.textContent = t("phone.updates"); }
   }
 }
 

@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "ar_virtual_desktop", ROOT / "src" / "emulator" / "virtual_desktop.py"
 )
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError("virtual_desktop.py could not be loaded")
 vd = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(vd)
 
@@ -20,7 +22,9 @@ SPEC.loader.exec_module(vd)
 def main() -> int:
     original = vd.current_desktop_id()
     before = {vd._norm(item) for item in vd.list_desktop_ids()}
-    print(f"build {vd.windows_build()} current {original} count {len(before)}", flush=True)
+    print(
+        f"build {vd.windows_build()} current {original} count {len(before)}", flush=True
+    )
     if vd._norm(original) not in before:
         print("FAILED current desktop missing from the list", flush=True)
         return 1
@@ -29,7 +33,10 @@ def main() -> int:
         new_id, fallback = vd.create_desktop()
         print(f"created {new_id} fallback {fallback}", flush=True)
         if not new_id or vd._norm(new_id) == vd._norm(original):
-            print("FAILED new desktop id is missing or equal to the current one", flush=True)
+            print(
+                "FAILED new desktop id is missing or equal to the current one",
+                flush=True,
+            )
             return 1
         if vd._norm(fallback) != vd._norm(original):
             print("FAILED fallback is not the desktop that was current", flush=True)

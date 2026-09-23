@@ -1401,7 +1401,9 @@ class NewDashboardDailySet:
                 f"[2/8] Ready to claim — {pending or pending_live} shown but "
                 "no Claim control found."
             )
-            self._claim_still_open(pending_live if isinstance(pending_live, int) else pending)
+            self._claim_still_open(
+                pending_live if isinstance(pending_live, int) else pending
+            )
             return
 
         self._log(
@@ -1494,7 +1496,9 @@ class NewDashboardDailySet:
                 self._claim_still_open(left)
         else:
             self._log("[ERROR] Claim clicked — pending amount could not be re-read.")
-            self._claim_still_open(pending_live if isinstance(pending_live, int) else None)
+            self._claim_still_open(
+                pending_live if isinstance(pending_live, int) else None
+            )
 
     def _flyout_activities(self, driver):
         """Read leftover +N quizzes/puzzles from the Bing Rewards flyout."""
@@ -1815,7 +1819,9 @@ class NewDashboardDailySet:
                     f"Quest '{title}': no actionable task right now "
                     "(locked or complete)."
                 )
-                if punchcard_incomplete(api_cards.get(url.split("?")[0].rstrip("/"), q)):
+                if punchcard_incomplete(
+                    api_cards.get(url.split("?")[0].rstrip("/"), q)
+                ):
                     self._queue_for_you(
                         url, title, "locked or no enabled task link", url
                     )

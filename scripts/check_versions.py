@@ -50,7 +50,11 @@ def main() -> int:
         path = ROOT / name
         if not path.is_file():
             mismatches.append(f"missing {name}")
-    license_text = (ROOT / "LICENSE").read_text(encoding="utf-8") if (ROOT / "LICENSE").is_file() else ""
+    license_text = (
+        (ROOT / "LICENSE").read_text(encoding="utf-8")
+        if (ROOT / "LICENSE").is_file()
+        else ""
+    )
     if "safarsin" not in license_text or "iGlitchOn" not in license_text:
         mismatches.append("LICENSE missing dual copyright")
     if mismatches:

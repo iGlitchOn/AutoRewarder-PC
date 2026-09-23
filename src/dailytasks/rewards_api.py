@@ -52,9 +52,7 @@ def is_rewards_quest_url(url):
     u = (url or "").lower()
     if "/earn/quest/" in u:
         return True
-    if "punchcard" in u and (
-        "rewards.bing.com" in u or u.startswith("/")
-    ):
+    if "punchcard" in u and ("rewards.bing.com" in u or u.startswith("/")):
         return True
     return False
 
@@ -79,12 +77,7 @@ def punchcard_incomplete(card):
     if card.get("complete"):
         return False
     done, total = card.get("done"), card.get("total")
-    if (
-        isinstance(done, int)
-        and isinstance(total, int)
-        and total > 0
-        and done >= total
-    ):
+    if isinstance(done, int) and isinstance(total, int) and total > 0 and done >= total:
         return False
     return True
 

@@ -424,8 +424,19 @@ A: Currently, the pre-built installer and standalone executable are only availab
 
 ---
 
-**Last Updated**: August 2026
+**Last Updated**: September 2026
 
-**Version**: 4.3.44
+## Errors you can see
+
+- **Check updates says there is nothing new, and Download is still there.** Download only appears when this repo has a newer Setup. The message goes away on its own.
+- **Update opened GitHub.** The in-app update now runs `AutoRewarder-Setup.exe /VERYSILENT`. It does not open the release page. Windows may still ask for administrator approval.
+- **Spanish mode still showed English, or English mode showed Spanish.** The window, settings, For you, and the phone screen follow the language setting. The activity lines written by the engine stay in English.
+- **For you was empty or opened a logged-out browser.** For you lists the tasks the bot will not click, plus live quests after Tasks only. Open uses this account's Edge and brings that window to the desktop you are on.
+- **GitHub showed AutoRewarder Linting failed.** That check is Black. 4.3.45 is formatted with the same Black version the workflow installs.
+- **A phone drop took 15 minutes to notice.** A phone with no heartbeat for 20 seconds is offline.
+- **Unplugging a monitor brought Edge back.** Edge for a hidden run sits on a virtual desktop this app created. Closing the run removes that desktop only.
+- **Check-in stays 0/1.** The linked phone has to be online, and Rewards has to return the counter. The app does not write that counter by itself.
+
+**Version**: 4.3.45
 
 Enjoy using AutoRewarder! 🎉

@@ -445,7 +445,9 @@ class DriverManager:
 
         if _driver is None:
             _driver, last_err = try_launch()
-            busy = "user data directory is already in use" in str(last_err or "").lower()
+            busy = (
+                "user data directory is already in use" in str(last_err or "").lower()
+            )
             if _driver is None and busy:
                 _driver = self._try_reuse_edge(scan_processes=True)
             # A locked profile is not a corrupt profile. Rewriting JSON while

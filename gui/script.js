@@ -240,7 +240,11 @@ function _update_panel(message, url) {
   if (!panel || !text) return;
   text.textContent = message || '';
   _custom_update_url = String(url || '');
-  if (download) download.disabled = !_custom_update_url;
+  const canDownload = !!_custom_update_url;
+  if (download) {
+    download.hidden = !canDownload;
+    download.disabled = !canDownload;
+  }
   panel.hidden = !message;
 }
 
@@ -272,21 +276,21 @@ function download_custom_update() {
     if (download) download.disabled = !_custom_update_url;
   };
   if (!api || typeof api.install_setup_update !== 'function') {
-    if (text) text.textContent = 'Esta versión no puede instalar AutoRewarder-Setup.exe.';
+    if (text) text.textContent = t('updates.old');
     finish();
     return;
   }
   api.install_setup_update(url).then(function (result) {
     if (result && result.ok) {
-      if (text) text.textContent = 'Instalando AutoRewarder-Setup.exe. La aplicación se cerrará.';
+      if (text) text.textContent = t('updates.installing');
     } else if (result && result.error === 'refused') {
-      _update_panel('Solo se instala AutoRewarder-Setup.exe de este repositorio.', '');
+      _update_panel(t('updates.refused'), '');
     } else {
-      _update_panel('El archivo ya no está en GitHub. Vuelve a Check updates.', '');
+      _update_panel(t('updates.missing'), '');
     }
     finish();
   }).catch(function () {
-    if (text) text.textContent = 'No se pudo comprobar el archivo en GitHub.';
+    if (text) text.textContent = t('updates.failed');
     finish();
   });
 }
@@ -298,24 +302,23 @@ function show_update_notice(result, manual) {
   const original = releases.find(function (item) { return item.kind === 'original' && item.newer; });
   const custom = releases.find(function (item) { return item.kind === 'custom' && item.newer; });
   if (original) {
-    update_log_once('Hay una nueva versión del repositorio original (' + original.tag + '). Notifica al desarrollador; no se instalará automáticamente.');
+    update_log_once(tf('updates.upstream', { tag: original.tag }));
   }
   if (custom) {
     const fileUrl = custom_setup_url(custom) || String(custom.download_url || '');
     if (fileUrl) {
-      _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', fileUrl);
+      _update_panel(tf('updates.available', { tag: custom.tag }), fileUrl);
     } else {
-      _update_panel('Nueva versión propia ' + custom.tag + ', pero no hay un instalador adjunto.', '');
+      _update_panel(tf('updates.no_installer', { tag: custom.tag }), '');
     }
   } else if (manual) {
     const customErr = errors.some(function (item) { return item.kind === 'custom'; });
     if (customErr) {
-      _update_panel('No se pudo comprobar GitHub.', '');
+      _update_panel(t('updates.github'), '');
     } else {
-      _update_panel('No hay una actualización propia disponible.', '');
+      _update_panel(t('updates.none'), '');
     }
     setTimeout(cancel_custom_update, 4000);
-    if (original) update_log('También hay una actualización del repositorio original para notificar al desarrollador.');
   } else {
     cancel_custom_update();
   }
@@ -324,13 +327,13 @@ function show_update_notice(result, manual) {
 
 function check_updates_manual() {
   const button = document.getElementById('updates_btn');
-  if (button) { button.disabled = true; button.textContent = 'Checking…'; }
+  if (button) { button.disabled = true; button.textContent = t('updates.checking'); }
   const done = function () {
-    if (button) { button.disabled = false; button.textContent = 'Check updates'; }
+    if (button) { button.disabled = false; button.textContent = t('updates.check'); }
   };
   try {
     if (!window.pywebview || !pywebview.api || typeof pywebview.api.check_updates !== 'function') {
-      update_log('No se pudo consultar GitHub desde esta versión.');
+      update_log(t('updates.old'));
       done();
       return;
     }
@@ -338,11 +341,11 @@ function check_updates_manual() {
       show_update_notice(result, true);
       done();
     }).catch(function () {
-      update_log('No se pudo comprobar GitHub.');
+      update_log(t('updates.github'));
       done();
     });
   } catch (e) {
-    update_log('No se pudo comprobar GitHub.');
+    update_log(t('updates.github'));
     done();
   }
 }
@@ -423,7 +426,7 @@ function start_bot() {
   set_running_ui(true);
   update_status_indicator('executing');
   pywebview.api.set_queries_counts(pc, mobile).then(function (ok) {
-    if (!ok) show_toast('Could not save query counts.', 'warning');
+    if (!ok) show_toast(t('toast.queries'), 'warning');
     return pywebview.api.start_run(pc, mobile, false);
   }).then(function (result) {
     if (result && result.started === false) {
@@ -432,7 +435,7 @@ function start_bot() {
     }
   }).catch(function (err) {
     console.error(err);
-    show_toast('Could not start the run.', 'error');
+    show_toast(t('toast.start'), 'error');
     enable_start_button();
   });
 }
@@ -455,7 +458,7 @@ function start_tasks_only() {
     }
   }).catch(function (err) {
     console.error(err);
-    show_toast('Could not start tasks.', 'error');
+    show_toast(t('toast.tasks'), 'error');
     enable_start_button();
   });
 }
@@ -518,11 +521,11 @@ function stop_bot() {
   if (stopBtn) {
     stopBtn.disabled = true;
     const stopLabel = stopBtn.querySelector('.stop-label');
-    if (stopLabel) stopLabel.textContent = 'Stopping…';
+    if (stopLabel) stopLabel.textContent = t('status.stopping');
   }
   update_status_indicator('executing');
   const text = document.getElementById('status_text');
-  if (text) text.textContent = 'Stopping…';
+  if (text) text.textContent = t('status.stopping');
   // Mark this as a user stop so a login-triggered run does not close the GUI.
   pywebview.api.stop(true).catch(function (err) {
     console.error('stop failed:', err);
@@ -551,19 +554,19 @@ function update_status_indicator(forceState) {
   switch (state) {
     case 'executing':
       dot.classList.add('active');
-      text.textContent = 'Running…';
+      text.textContent = t('status.running');
       break;
     case 'ready':
       dot.classList.add('ready');
-      text.textContent = 'Ready';
+      text.textContent = t('status.ready');
       break;
     case 'setup':
       dot.classList.add('warning');
-      text.textContent = 'Setup needed';
+      text.textContent = t('status.setup');
       break;
     case 'empty':
     default:
-      text.textContent = 'No account selected';
+      text.textContent = t('status.no_account');
       break;
   }
 }
@@ -574,7 +577,7 @@ function show_history() {
     return;
   }
   Promise.resolve(pywebview.api.open_history_window()).catch(function () {
-    show_toast('Could not open history.', 'error');
+    show_toast(t('toast.history'), 'error');
   });
 }
 
@@ -584,7 +587,7 @@ function show_stats() {
     return;
   }
   Promise.resolve(pywebview.api.open_stats_window()).catch(function () {
-    show_toast('Could not open stats.', 'error');
+    show_toast(t('toast.stats'), 'error');
   });
 }
 
@@ -614,11 +617,11 @@ function set_stats_loading(on) {
   if (txt === 'Running…') return;  // a run owns the button; leave it alone
   if (balanceFetching) {
     btn.disabled = true;
-    if (label) label.textContent = 'Loading…';
+    if (label) label.textContent = t('status.loading');
   } else {
     const current = accountsCache.find(a => a.id === currentAccountId);
     btn.disabled = !(current && current.first_setup_done) || driverWarmingUp;
-    if (label && !driverWarmingUp) label.textContent = 'Start run';
+    if (label && !driverWarmingUp) label.textContent = t('run.start');
   }
 }
 
@@ -639,14 +642,14 @@ function refresh_stats_ui() {
     if (!stats || !stats.derived) {
       if (totalEl) totalEl.textContent = '—';
       if (sessionEl) sessionEl.textContent = '—';
-      if (totalLabel) totalLabel.textContent = 'Total points';
+      if (totalLabel) totalLabel.textContent = t('stats.total');
       const dateEl = document.getElementById('stat_session_date');
       if (dateEl) dateEl.textContent = '';
       return;
     }
     const d = stats.derived;
     if (totalEl) totalEl.textContent = _fmt_points(d.is_estimate ? null : d.total_points, false);
-    if (totalLabel) totalLabel.textContent = 'Total points';
+    if (totalLabel) totalLabel.textContent = t('stats.total');
     if (sessionEl) {
       const today = d.today_is_estimate ? null : (d.today_points != null ? d.today_points : d.session_points);
       sessionEl.textContent = _fmt_points(today, today == null ? true : 'delta');
@@ -702,9 +705,9 @@ function refresh_rewards_overview() {
     if (pill) {
       const state = progress.daily_state || 'pending';
       pill.dataset.state = state;
-      if (state === 'done') pill.textContent = 'Daily tasks: done';
+      if (state === 'done') pill.textContent = t('daily.done');
       else if (state === 'partial') pill.textContent = `Daily tasks: ${progress.daily || 'partial'}`;
-      else pill.textContent = 'Daily tasks: pending (will verify live)';
+      else pill.textContent = t('daily.pending');
     }
     const current = accountsCache.find(a => a.id === currentAccountId);
     const meta = document.getElementById('current_meta');
@@ -751,7 +754,7 @@ function render_account_menu() {
   if (accountsCache.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'accounts-empty';
-    empty.textContent = 'No accounts yet';
+    empty.textContent = t('account.empty');
     menu.appendChild(empty);
   } else {
     for (const acc of accountsCache) {
@@ -791,9 +794,9 @@ function render_account_menu() {
         toggle_account_menu(false);
         if (acc.id !== currentAccountId) {
           pywebview.api.switch_account(acc.id).then(ok => {
-            if (!ok) show_toast('Could not switch account. Is the bot running?', 'warning');
+            if (!ok) show_toast(t('toast.switch_run'), 'warning');
           }).catch(function () {
-            show_toast('Could not switch account.', 'error');
+            show_toast(t('toast.switch'), 'error');
           });
         }
       });
@@ -855,7 +858,7 @@ function render_account_trigger() {
   } else {
     avatarEl.textContent = '+';
     avatarEl.style.backgroundColor = 'var(--surface-3)';
-    labelEl.textContent = 'No account yet';
+    labelEl.textContent = t('account.none_yet');
     metaEl.textContent = accountsCache.length ? 'Select one below' : 'Add your first account';
     trigger.disabled = accountsCache.length === 0 && false; // keep clickable to open menu
   }
@@ -892,7 +895,7 @@ async function prompt_and_create_account() {
       } else if (result && result.error === 'setup_failed') {
         show_toast('Setup cancelled — account not created.', 'warning');
       } else {
-        show_toast('Could not create account.', 'error');
+        show_toast(t('toast.create'), 'error');
       }
     } else {
       show_toast(`Account "${result.label}" is ready.`, 'success');
@@ -900,7 +903,7 @@ async function prompt_and_create_account() {
     refresh_account_ui();
   }).catch(function (err) {
     console.error('create_account failed:', err);
-    show_toast('Could not create account.', 'error');
+    show_toast(t('toast.create'), 'error');
     refresh_account_ui();
   }).then(function () {
     accountCreating = false;
@@ -952,7 +955,7 @@ function open_settings_modal() {
     if (startup && !startup.supported) {
       startupRow.classList.add('row-disabled');
       startupToggle.disabled = true;
-      startupHint.textContent = 'Available on Windows and Linux only.';
+      startupHint.textContent = t('settings.startup_os');
     } else {
       startupRow.classList.remove('row-disabled');
       startupToggle.disabled = false;
@@ -966,11 +969,11 @@ function open_settings_modal() {
     if (openOnLogin && !openOnLogin.supported) {
       openOnLoginRow.classList.add('row-disabled');
       openOnLoginToggle.disabled = true;
-      openOnLoginHint.textContent = 'Available on Windows only.';
+      openOnLoginHint.textContent = t('settings.login_win');
     } else {
       openOnLoginRow.classList.remove('row-disabled');
       openOnLoginToggle.disabled = false;
-      openOnLoginHint.textContent = 'When you sign in to Windows, run leftover searches and daily tasks. If everything is already done, AutoRewarder closes.';
+      openOnLoginHint.textContent = t('settings.login_hint');
     }
 
     // Close-to-tray toggle — default to true if the API failed.
@@ -1004,7 +1007,7 @@ function open_settings_modal() {
     if (modelInput) modelInput.value = cfg.llm_model || '';
     if (keyInput) {
       keyInput.value = '';
-      keyInput.placeholder = cfg.has_llm_key ? 'Key saved' : 'Your own API key';
+      keyInput.placeholder = cfg.has_llm_key ? t('settings.key_saved') : t('settings.key_ph');
     }
     if (localeInput) localeInput.value = cfg.search_locale || 'auto';
     if (localeHint) {
@@ -1015,7 +1018,7 @@ function open_settings_modal() {
     apply_llm_field_state();
   }).catch(err => {
     console.error('Failed to load settings:', err);
-    show_toast('Could not load settings.', 'error');
+    show_toast(t('toast.settings'), 'error');
   });
 
   backdrop.hidden = false;
@@ -1162,7 +1165,7 @@ function build_schedule_card(item) {
   advPill.className = 'toggle-pill';
   const advLabel = document.createElement('span');
   advLabel.className = 'sched-adv-label';
-  advLabel.textContent = 'Advanced scheduling (drip-feed across duration)';
+  advLabel.textContent = t('settings.adv');
   const advWrap = document.createElement('span');
   advWrap.className = 'toggle-compact';
   advWrap.appendChild(advInput);
@@ -1756,7 +1759,7 @@ function switch_app_tab(name) {
 function refresh_manual_tasks() {
   if (!window.pywebview || !pywebview.api || !pywebview.api.get_manual_tasks) return;
   pywebview.api.get_manual_tasks().then(render_manual_tasks).catch(function () {
-    show_toast('Could not load For you tasks.', 'error');
+    show_toast(t('foryou.load_fail'), 'error');
   });
 }
 
@@ -1776,7 +1779,7 @@ function render_manual_tasks(data) {
   if (!active.length) {
     const empty = document.createElement('p');
     empty.className = 'manual-empty';
-    empty.textContent = 'No open quests yet. Run Tasks only to load them from your Rewards /earn page.';
+    empty.textContent = t('foryou.empty');
     list.appendChild(empty);
   }
   active.forEach(function (t) { list.appendChild(_manual_row(t, false)); });
@@ -1806,18 +1809,18 @@ function _manual_row(task, isIgnored) {
   const openBtn = document.createElement('button');
   openBtn.type = 'button';
   openBtn.className = 'btn-secondary';
-  openBtn.textContent = 'Open';
+  openBtn.textContent = t('foryou.open');
   openBtn.onclick = function () {
     if (!window.pywebview || !pywebview.api || !pywebview.api.open_manual_task) {
-      show_toast('Could not open this task.', 'error');
+      show_toast(t('foryou.open_fail'), 'error');
       return;
     }
     pywebview.api.open_manual_task(task.id).then(function (res) {
       if (res && res.ok === false) {
-        show_toast(res.error || res.message || 'Could not open this task.', 'error');
+        show_toast(res.message || t('foryou.open_fail'), 'error');
       }
     }).catch(function () {
-      show_toast('Could not open this task.', 'error');
+      show_toast(t('foryou.open_fail'), 'error');
     });
   };
   actions.appendChild(openBtn);
@@ -1825,10 +1828,10 @@ function _manual_row(task, isIgnored) {
     const un = document.createElement('button');
     un.type = 'button';
     un.className = 'ghost-link';
-    un.textContent = 'Unignore';
+    un.textContent = t('foryou.unignore');
     un.onclick = function () {
       pywebview.api.ignore_manual_task(task.id, false).then(render_manual_tasks).catch(function () {
-        show_toast('Could not update this task.', 'error');
+        show_toast(t('foryou.update_fail'), 'error');
       });
     };
     actions.appendChild(un);
@@ -1836,20 +1839,20 @@ function _manual_row(task, isIgnored) {
     const ign = document.createElement('button');
     ign.type = 'button';
     ign.className = 'ghost-link';
-    ign.textContent = 'Ignore';
+    ign.textContent = t('foryou.ignore');
     ign.onclick = function () {
       pywebview.api.ignore_manual_task(task.id, true).then(render_manual_tasks).catch(function () {
-        show_toast('Could not ignore this task.', 'error');
+        show_toast(t('foryou.update_fail'), 'error');
       });
     };
     actions.appendChild(ign);
     const rm = document.createElement('button');
     rm.type = 'button';
     rm.className = 'ghost-link danger-link';
-    rm.textContent = 'Remove';
+    rm.textContent = t('foryou.remove');
     rm.onclick = function () {
       pywebview.api.remove_manual_task(task.id).then(render_manual_tasks).catch(function () {
-        show_toast('Could not remove this task.', 'error');
+        show_toast(t('foryou.update_fail'), 'error');
       });
     };
     actions.appendChild(rm);
@@ -1872,7 +1875,7 @@ function copy_activity_log() {
   const logDiv = document.getElementById('log_area');
   const text = logDiv ? (logDiv.innerText || '').trim() : '';
   if (!text) {
-    show_toast('Activity log is empty.', 'info');
+    show_toast(t('log.empty'), 'info');
     return;
   }
   const done = () => show_toast('Activity log copied.', 'success');
@@ -1892,7 +1895,7 @@ function copy_activity_log() {
       document.execCommand('copy');
       done();
     } catch (err) {
-      show_toast('Could not copy the activity log.', 'error');
+      show_toast(t('toast.copy'), 'error');
     }
     ta.remove();
   }
@@ -2007,7 +2010,7 @@ function render_phone_device(info) {
             refresh_phone_ui();
           }
         }).catch(function () {
-          show_toast('Could not send check-in.', 'error');
+          show_toast(t('toast.checkin'), 'error');
           ask.disabled = false;
         });
       });
@@ -2028,7 +2031,7 @@ function render_phone_device(info) {
             refresh_phone_ui();
           }
         }).catch(function () {
-          show_toast('Could not send news.', 'error');
+          show_toast(t('toast.news'), 'error');
           news.disabled = false;
         });
       });
@@ -2053,7 +2056,7 @@ function render_phone_device(info) {
           refresh_account_ui();
         }).catch(function (err) {
           console.error('unlink_phone failed:', err);
-          show_toast('Could not unlink the phone.', 'error');
+          show_toast(t('toast.unlink'), 'error');
           unlink.disabled = false;
           refresh_account_ui();
         });
@@ -2111,7 +2114,7 @@ function begin_phone_pairing() {
   phonePairingBusy = true;
   pywebview.api.begin_phone_pairing().then(function (info) {
     if (!info || info.ok === false) {
-      const msg = (info && (info.message || info.error)) || 'Could not start pairing.';
+      const msg = (info && (info.message || info.error)) || t('toast.pair');
       show_toast(msg === 'no_account' ? 'Select a Microsoft account first.' : msg, 'error');
       return;
     }
@@ -2119,7 +2122,7 @@ function begin_phone_pairing() {
     if (modal) modal.hidden = false;
     render_phone_device(info);
   }).catch(function (err) {
-    show_toast('Could not start pairing.', 'error');
+    show_toast(t('toast.pair'), 'error');
     console.error(err);
   }).then(function () {
     phonePairingBusy = false;
@@ -2144,7 +2147,7 @@ function copy_pair_code() {
       ta.remove();
       done();
     } catch (e) {
-      show_toast('Could not copy the code.', 'error');
+      show_toast(t('toast.copy_code'), 'error');
     }
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2160,6 +2163,6 @@ function cancel_phone_pairing(quiet) {
   if (quiet) return;
   if (!window.pywebview || !pywebview.api || !pywebview.api.cancel_phone_pairing) return;
   pywebview.api.cancel_phone_pairing().then(refresh_phone_ui).catch(function () {
-    show_toast('Could not cancel pairing.', 'error');
+    show_toast(t('toast.cancel_pair'), 'error');
   });
 }

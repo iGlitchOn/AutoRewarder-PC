@@ -55,6 +55,7 @@ def _urls_for(market):
         ),
     }
 
+
 _LIVE_APP_PROGRESS_JS = r"""
 try {
   var text = (document.body.innerText || '').replace(/\u00a0/g, ' ');
@@ -359,9 +360,7 @@ class BingAppTasks:
             self._log(f"News already complete ({progress}/{max_pts} pts).")
             return True
         if max_pts == 0:
-            self._log(
-                "News: no readArticle counter on getuserinfo. Not marking done."
-            )
+            self._log("News: no readArticle counter on getuserinfo. Not marking done.")
             return False
         self._log(
             f"News: Bing phone client ({self.market}), reading articles "

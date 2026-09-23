@@ -846,9 +846,7 @@ class AutoRewarderAPI:
             def redirect_request(self, req, fp, code, msg, headers, newurl):
                 if not str(newurl or "").lower().startswith("https://"):
                     raise urllib.error.URLError("refused redirect")
-                return super().redirect_request(
-                    req, fp, code, msg, headers, newurl
-                )
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
 
         opener = urllib.request.build_opener(_HttpsRedirect)
         req = urllib.request.Request(
@@ -897,7 +895,12 @@ class AutoRewarderAPI:
         import ctypes
 
         rc = ctypes.windll.shell32.ShellExecuteW(
-            None, "open", target, None, None, 1
+            None,
+            "open",
+            target,
+            "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+            None,
+            1,
         )
         return int(rc) > 32
 
@@ -2684,9 +2687,7 @@ class AutoRewarderAPI:
                 {
                     "id": acc["id"],
                     "label": acc["label"],
-                    "total_points": (
-                        balance if isinstance(balance, int) else None
-                    ),
+                    "total_points": (balance if isinstance(balance, int) else None),
                     "is_estimate": not isinstance(balance, int),
                     "lifetime_runs": stats["lifetime"]["runs"],
                     "pc_searches": stats["lifetime"]["pc_searches"],
@@ -3006,7 +3007,12 @@ class AutoRewarderAPI:
         if not live:
             live = self.account_meta.get_live_manual_tasks()
         return {
-            "tasks": list_tasks(prefs["ignored"], prefs["removed"], live),
+            "tasks": list_tasks(
+                prefs["ignored"],
+                prefs["removed"],
+                live,
+                lang=self.ui_locale(),
+            ),
             "ignored": prefs["ignored"],
             "removed": prefs["removed"],
         }
@@ -3045,11 +3051,53 @@ class AutoRewarderAPI:
         try:
             if url.startswith("ms-settings:"):
                 os.startfile(url)
+            elif url.lower().startswith(("http://", "https://")):
+                self._open_in_account_edge(url)
             else:
-                webbrowser.open(url)
+                return {"ok": False, "error": "bad_url"}
             return {"ok": True, "url": url}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    def _open_in_account_edge(self, url):
+        """Open a For you link in this account's Edge, on the current desktop."""
+        aid = self.account_manager.current_id()
+        profile = edge_profile_path(aid) if aid else ""
+        edge = ""
+        try:
+            edge = self.driver_manager.edge_binary()
+        except Exception:
+            edge = ""
+        if not edge or not profile or not os.path.isdir(profile):
+            webbrowser.open(url)
+            return
+        popen_kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if platform.system() == "Windows":
+            popen_kwargs["creationflags"] = 0x00000200
+        subprocess.Popen(
+            [
+                edge,
+                f"--user-data-dir={profile}",
+                "--profile-directory=Default",
+                url,
+            ],
+            **popen_kwargs,
+        )
+        if platform.system() != "Windows":
+            return
+        time.sleep(0.8)
+        try:
+            from .emulator.virtual_desktop import (
+                edge_hwnds,
+                move_windows_to_current,
+            )
+
+            move_windows_to_current(edge_hwnds(profile, ()))
+        except Exception as e:
+            self._safe_log(f"[WARNING] For you stayed on its current desktop: {e}")
 
     def _fetch_balance_with_driver(self, driver, attempts=8):
         """
@@ -3752,16 +3800,17 @@ class AutoRewarderAPI:
             self._report(
                 "Punchcards",
                 False,
-                "task list did not render"
-                + (f", {left} still open" if left else ""),
+                "task list did not render" + (f", {left} still open" if left else ""),
             )
         elif left > 0:
             self._report(
                 "Punchcards",
                 False,
-                f"{quests} verified, {left} still open"
-                if quests
-                else f"{left} still open",
+                (
+                    f"{quests} verified, {left} still open"
+                    if quests
+                    else f"{left} still open"
+                ),
             )
         elif quests:
             self._report("Punchcards", True, f"{quests} task(s) verified")
@@ -3991,7 +4040,9 @@ class AutoRewarderAPI:
                     if self.history is not None:
                         self.history.add_activity(
                             "Daily tasks: set",
-                            "Partial (" + (", ".join(why) if why else "still open") + ")",
+                            "Partial ("
+                            + (", ".join(why) if why else "still open")
+                            + ")",
                         )
                 else:
                     self.log("Daily tasks failed. Not marked as done for today.")
@@ -4291,9 +4342,7 @@ class AutoRewarderAPI:
                     done_n, total_n = 0, 0
                 if total_n > 0:
                     try:
-                        self.daily_set.save_live_snapshot(
-                            {"news": [done_n, total_n]}
-                        )
+                        self.daily_set.save_live_snapshot({"news": [done_n, total_n]})
                     except Exception:
                         pass
                 if total_n > 0 and done_n >= total_n:
@@ -4302,9 +4351,7 @@ class AutoRewarderAPI:
                     self._report("News", True, f"{done_n}/{total_n}")
                 else:
                     shown = f"{done_n}/{total_n}" if total_n > 0 else "unverified"
-                    self.log(
-                        f"[8/8] News — not complete ({shown}). Not marking done."
-                    )
+                    self.log(f"[8/8] News — not complete ({shown}). Not marking done.")
                     self._report("News", False, f"no credit ({shown})")
                 self._notify_progress()
 
@@ -4741,9 +4788,7 @@ class AutoRewarderAPI:
                 self._try_scrape_balance()
                 if not self._stop_event.is_set():
                     live_now = getattr(self.daily_set, "live_progress", {}) or {}
-                    if success and not self.daily_set.day_still_open(
-                        live_now, totals
-                    ):
+                    if success and not self.daily_set.day_still_open(live_now, totals):
                         marked = self.daily_set.mark_as_completed()
                         if marked is False:
                             self.log(

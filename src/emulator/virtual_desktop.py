@@ -343,9 +343,7 @@ class _Session:
             ctypes.byref(punk),
         )
         if hr < 0 or not punk.value:
-            raise VirtualDesktopError(
-                f"VirtualDesktopManager 0x{hr & 0xFFFFFFFF:08X}"
-            )
+            raise VirtualDesktopError(f"VirtualDesktopManager 0x{hr & 0xFFFFFFFF:08X}")
         self.public = self._keep(punk.value)
         return self.public
 
@@ -501,6 +499,23 @@ def remove_desktop(desktop_id, fallback_id):
             return want not in {_norm(item) for item in session.list_ids()}
 
 
+def move_windows_to_current(hwnds):
+    """Move these windows onto the desktop the user is looking at."""
+    if os.name != "nt":
+        return 0
+    moved = 0
+    with _COM_LOCK:
+        with _Session() as session:
+            desktop_id = session.current_id()
+            for hwnd in hwnds or []:
+                try:
+                    if session.move_hwnd(int(hwnd), desktop_id):
+                        moved += 1
+                except (VirtualDesktopError, OSError, ValueError):
+                    continue
+    return moved
+
+
 def move_window_to_desktop(hwnd, desktop_id):
     """Move hwnd without switching the current desktop. True on success."""
     if not hwnd or not desktop_id:
@@ -519,6 +534,7 @@ def move_window_to_desktop(hwnd, desktop_id):
 
 
 # --- Edge HWND lookup (same user, no coordinate parking) -----------------
+
 
 class _PROCESSENTRY32W(ctypes.Structure):
     _fields_ = [
