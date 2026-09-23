@@ -20,6 +20,7 @@ from datetime import datetime
 
 from .config import (
     GUI_DIR,
+    APP_DIR,
     REPO,
     CURRENT_VERSION,
     GITHUB_VERSION,
@@ -81,6 +82,43 @@ def _normalize_run_time(value):
     if isinstance(value, str) and _TIME_RE.match(value.strip()):
         return value.strip()
     return AUTOSTART_TIME
+
+
+_SETUP_EXE_NAME = "AutoRewarder-Setup.exe"
+
+
+def setup_exe_url_allowed(url):
+    """True only for this repo's https GitHub release of AutoRewarder-Setup.exe."""
+    from urllib.parse import unquote, urlparse
+
+    raw = str(url or "").strip()
+    if not raw or any(ch in raw for ch in ("\r", "\n", "\\", " ")):
+        return False
+    parsed = urlparse(raw)
+    if parsed.scheme != "https":
+        return False
+    if parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if host != "github.com":
+        return False
+    if parsed.port not in (None, 443):
+        return False
+    if parsed.query or parsed.fragment:
+        return False
+    parts = [unquote(part) for part in parsed.path.split("/") if part]
+    if len(parts) != 6:
+        return False
+    if any("/" in part or "\\" in part or part in (".", "..") for part in parts):
+        return False
+    owner, repo, releases, download, tag, name = parts
+    if (owner, repo) != tuple(REPO.split("/", 1)):
+        return False
+    if releases != "releases" or download != "download":
+        return False
+    if not tag or tag.startswith("."):
+        return False
+    return name == _SETUP_EXE_NAME
 
 
 def _windows_ui_locale():
@@ -316,10 +354,16 @@ class AutoRewarderAPI:
         return f'"{exe}" "{entry}" --from-login'
 
     def _resync_os_hooks(self):
-        """Re-write login + scheduled-task commands to this build's exe."""
+        """Re-write login + scheduled-task commands to this build's exe.
+
+        launch_on_login false must delete a stale AutoRewarderGUI Run value.
+        An old portable exe otherwise re-stamps its own path on the next boot.
+        """
         try:
-            if bool(self.global_settings.get_settings().get("launch_on_login", False)):
-                self._write_login_run_key(True)
+            enabled = bool(
+                self.global_settings.get_settings().get("launch_on_login", False)
+            )
+            self._write_login_run_key(enabled)
         except Exception as e:
             self._safe_log(f"[WARNING] Could not refresh sign-in shortcut: {e}")
         try:
@@ -762,6 +806,115 @@ class AutoRewarderAPI:
             return {"ok": False, "error": "missing"}
         webbrowser.open(url)
         return {"ok": True}
+
+    def install_setup_update(self, url):
+        """Download AutoRewarder-Setup.exe from this repo and launch it.
+
+        Any other host or filename is refused. The local file is what runs;
+        the URL is never passed to the shell.
+        """
+        url = str(url or "").strip()
+        if not setup_exe_url_allowed(url):
+            return {"ok": False, "error": "refused"}
+        dest_dir = os.path.join(APP_DIR, "updates")
+        dest = os.path.join(dest_dir, _SETUP_EXE_NAME)
+        tmp = dest + ".part"
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            self._download_setup_exe(url, tmp)
+            os.replace(tmp, dest)
+        except Exception as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            self._safe_log(f"[WARNING] Setup download failed: {e}")
+            return {"ok": False, "error": "missing"}
+        if not self._launch_setup_exe(dest):
+            return {"ok": False, "error": "launch_failed"}
+        self._safe_log("Launching AutoRewarder-Setup.exe and closing this app.")
+        threading.Thread(
+            target=self._exit_after_setup_launch, daemon=True, name="setup-exit"
+        ).start()
+        return {"ok": True}
+
+    def _download_setup_exe(self, url, tmp_path):
+        import urllib.error
+        import urllib.request
+
+        class _HttpsRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                if not str(newurl or "").lower().startswith("https://"):
+                    raise urllib.error.URLError("refused redirect")
+                return super().redirect_request(
+                    req, fp, code, msg, headers, newurl
+                )
+
+        opener = urllib.request.build_opener(_HttpsRedirect)
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "AutoRewarder",
+                "Accept": "application/octet-stream",
+            },
+        )
+        max_bytes = 800 * 1024 * 1024
+        total = 0
+        with opener.open(req, timeout=60) as resp:
+            final = str(resp.geturl() or "")
+            if not final.lower().startswith("https://"):
+                raise urllib.error.URLError("refused")
+            status = int(getattr(resp, "status", None) or resp.getcode() or 0)
+            if status not in (200, 206):
+                raise urllib.error.URLError(f"status {status}")
+            with open(tmp_path, "wb") as out:
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise urllib.error.URLError("too_large")
+                    out.write(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+        if total < 64 * 1024:
+            raise urllib.error.URLError("too_small")
+        with open(tmp_path, "rb") as fh:
+            if fh.read(2) != b"MZ":
+                raise urllib.error.URLError("not_exe")
+
+    def _launch_setup_exe(self, path):
+        """ShellExecute the local setup exe. Never a URL."""
+        if platform.system() != "Windows":
+            return False
+        updates = os.path.abspath(os.path.join(APP_DIR, "updates"))
+        target = os.path.abspath(path)
+        if os.path.basename(target) != _SETUP_EXE_NAME:
+            return False
+        if os.path.dirname(target) != updates or not os.path.isfile(target):
+            return False
+        import ctypes
+
+        rc = ctypes.windll.shell32.ShellExecuteW(
+            None, "open", target, None, None, 1
+        )
+        return int(rc) > 32
+
+    def _exit_after_setup_launch(self):
+        """Leave so Inno can replace this exe."""
+        time.sleep(0.6)
+        try:
+            self.shutdown()
+        except Exception:
+            pass
+        window = self._webview_window
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:
+                pass
+        os._exit(0)
 
     def load_driver_in_background(self):
         """Warmup the WebDriver download, only if an account is selected."""
@@ -3850,6 +4003,92 @@ class AutoRewarderAPI:
         finally:
             self._quit_driver()
 
+    def _verify_phone_bing_counters(self, tasks, phone_checkin, phone_news):
+        """Re-read getuserinfo after a phone ok. Never mark from the detail text."""
+        from .dailytasks.rewards_api import fetch_userinfo, parse_userinfo
+
+        parsed = None
+        self._driver = None
+        try:
+            self._driver = self.driver_manager.setup_driver(
+                mobile=True,
+                bing_app=True,
+                market=getattr(tasks, "market", None),
+            )
+            try:
+                tasks._safe_get(self._driver, "https://rewards.bing.com/dashboard")
+            except Exception:
+                pass
+            raw = fetch_userinfo(self._driver)
+            if isinstance(raw, dict):
+                parsed = parse_userinfo(raw)
+        except Exception as e:
+            if self._stop_event.is_set():
+                self.log("Stopped.")
+            else:
+                self.log(f"[WARNING] getuserinfo re-read failed: {e}")
+            parsed = None
+        finally:
+            self._quit_driver()
+        self._apply_verified_phone_counter(
+            phone_checkin,
+            parsed,
+            "checkin",
+            "[7/8] Mobile check-in",
+            "Check-in",
+            self.daily_set.mark_checkin_as_completed,
+        )
+        self._apply_verified_phone_counter(
+            phone_news,
+            parsed,
+            "news",
+            "[8/8] News",
+            "News",
+            self.daily_set.mark_news_as_completed,
+        )
+
+    def _apply_verified_phone_counter(
+        self, phone_result, parsed, key, log_prefix, report_name, mark
+    ):
+        from .dailytasks.rewards_api import counter_complete
+
+        if not isinstance(phone_result, dict) or not phone_result.get("ok"):
+            return
+        parsed = parsed if isinstance(parsed, dict) else {}
+        pair = parsed.get(key)
+        done = total = 0
+        live = False
+        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+            try:
+                done, total = int(pair[0]), int(pair[1])
+                live = total > 0
+            except (TypeError, ValueError):
+                live = False
+        if live and counter_complete(parsed, key):
+            try:
+                mark()
+            except Exception:
+                pass
+            try:
+                self.daily_set.save_live_snapshot({key: [done, total]})
+            except Exception:
+                pass
+            self.log(f"{log_prefix} — live counter {done}/{total}.")
+            self._report(report_name, True, f"{done}/{total}")
+        elif not live:
+            self.log(
+                f"{log_prefix} — phone reported success but the result is "
+                "unverified (no live getuserinfo counter). Not marking done."
+            )
+            self._report(report_name, "skip", "unverified")
+        else:
+            self.log(
+                f"{log_prefix} — live counter {done}/{total} is not complete. "
+                "Not marking done."
+            )
+            self._report(report_name, "skip", f"{done}/{total}")
+        self._notify_progress()
+
     def _run_bing_app_tasks(self):
         """
         Verify check-in / news / Bing-app streak against the live dashboard,
@@ -3879,15 +4118,10 @@ class AutoRewarderAPI:
         phone_checkin = self._phone_try("checkin", timeout=180)
         if phone_checkin is not None:
             if phone_checkin.get("ok"):
-                self.log("[7/8] Mobile check-in — completed on the linked phone.")
-                self.daily_set.mark_checkin_as_completed()
-                self._report(
-                    "Check-in", True, phone_checkin.get("detail") or "by phone"
+                self.log(
+                    "[7/8] Mobile check-in — phone reported success. "
+                    "Not marking done until getuserinfo shows a live counter."
                 )
-                try:
-                    self.daily_set.save_live_snapshot({"checkin": [1, 1]})
-                except Exception:
-                    pass
             else:
                 self.log(
                     "[7/8] Mobile check-in — phone did not finish: "
@@ -3902,9 +4136,10 @@ class AutoRewarderAPI:
         phone_news = self._phone_try("news", timeout=180)
         if phone_news is not None:
             if phone_news.get("ok"):
-                self.log("[8/8] News — credited on the linked phone.")
-                self.daily_set.mark_news_as_completed()
-                self._report("News", True, phone_news.get("detail") or "by phone")
+                self.log(
+                    "[8/8] News — phone reported success. "
+                    "Not marking done until getuserinfo shows a live counter."
+                )
             else:
                 self.log(
                     f"[8/8] News — phone did not finish: {phone_news.get('detail')}"
@@ -3914,6 +4149,10 @@ class AutoRewarderAPI:
                 )
             self._notify_progress()
         if phone_checkin is not None and phone_news is not None:
+            if (
+                phone_checkin.get("ok") or phone_news.get("ok")
+            ) and not self._stop_event.is_set():
+                self._verify_phone_bing_counters(tasks, phone_checkin, phone_news)
             return
 
         if phone_checkin is None or phone_news is None:
@@ -3986,13 +4225,12 @@ class AutoRewarderAPI:
                         "Bing mobile app only — web tile does not open a page",
                     )
                 try:
-                    self.daily_set.save_live_snapshot(
-                        {
-                            "checkin": (
-                                after if isinstance(after, (list, tuple)) else [0, 1]
+                    if isinstance(after, (list, tuple)) and len(after) == 2:
+                        snap_done, snap_total = int(after[0]), int(after[1])
+                        if snap_total > 0:
+                            self.daily_set.save_live_snapshot(
+                                {"checkin": [snap_done, snap_total]}
                             )
-                        }
-                    )
                 except Exception:
                     pass
                 self._notify_progress()
@@ -4037,32 +4275,29 @@ class AutoRewarderAPI:
                     f"[8/8] News — Bing phone client ({market}). "
                     "PC dashboard does not show this; the app does."
                 )
-                ok = tasks.read_news(self._driver, stop_event=self._stop_event)
+                tasks.read_news(self._driver, stop_event=self._stop_event)
                 news_after = tasks.news_progress(self._driver)
                 try:
-                    self.daily_set.save_live_snapshot(
-                        {"news": [news_after[0], news_after[1] or 30]}
-                    )
-                except Exception:
-                    pass
-                if ok:
+                    done_n, total_n = int(news_after[0]), int(news_after[1])
+                except (TypeError, ValueError, IndexError):
+                    done_n, total_n = 0, 0
+                if total_n > 0:
+                    try:
+                        self.daily_set.save_live_snapshot(
+                            {"news": [done_n, total_n]}
+                        )
+                    except Exception:
+                        pass
+                if total_n > 0 and done_n >= total_n:
                     self.daily_set.mark_news_as_completed()
-                    self.log(
-                        f"[8/8] News — credited on phone client "
-                        f"({news_after[0]}/{news_after[1] or 30})."
-                    )
-                    self._report(
-                        "News",
-                        True,
-                        f"{news_after[0]}/{news_after[1] or 30}",
-                    )
+                    self.log(f"[8/8] News — live counter {done_n}/{total_n}.")
+                    self._report("News", True, f"{done_n}/{total_n}")
                 else:
-                    self.log("[8/8] News — did not credit. Not marking done.")
-                    self._report(
-                        "News",
-                        False,
-                        f"no credit ({news_after[0]}/{news_after[1] or 30})",
+                    shown = f"{done_n}/{total_n}" if total_n > 0 else "unverified"
+                    self.log(
+                        f"[8/8] News — not complete ({shown}). Not marking done."
                     )
+                    self._report("News", False, f"no credit ({shown})")
                 self._notify_progress()
 
             if not self._stop_event.is_set() and not checkin_done:

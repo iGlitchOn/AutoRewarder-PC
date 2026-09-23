@@ -1120,14 +1120,17 @@ async function _pcPhoneUpdate() {
   const urls = bases();
   for (let i = 0; i < urls.length; i++) {
     try {
-      let text = httpRaw("GET", urls[i] + "/update", null, "");
-      if (text == null) text = await fetchRaw("GET", urls[i] + "/update", null, "");
+      let text = httpRaw("GET", urls[i] + "/update", null, state.token || "");
+      if (text == null) text = await fetchRaw("GET", urls[i] + "/update", null, state.token || "");
       const data = JSON.parse(text || "{}");
       if (!data || data.ok === false) continue;
       const name = String(data.versionName || data.versionCode || "");
       if (!name) continue;
       const apk = String(data.apk || "/update/apk");
-      const path = apk.indexOf("http") === 0 ? apk : (urls[i] + (apk.charAt(0) === "/" ? apk : "/" + apk));
+      let path = apk.indexOf("http") === 0 ? apk : (urls[i] + (apk.charAt(0) === "/" ? apk : "/" + apk));
+      if (state.token && path.indexOf("token=") < 0) {
+        path += (path.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(state.token);
+      }
       return {
         repo: "pc",
         tag: name,
@@ -1179,7 +1182,7 @@ async function checkPhoneUpdate(manual) {
   if (manual && button) { button.disabled = true; button.textContent = "Comprobando…"; }
   const n = native();
   try {
-    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.39") : "4.3.39";
+    const mine = n && n.appVersionName ? String(n.appVersionName() || "4.3.40") : "4.3.40";
     const mineCode = n && n.appVersionCode ? Number(n.appVersionCode() || 0) : 0;
     const newerThanMine = function (update) {
       if (!update) return false;

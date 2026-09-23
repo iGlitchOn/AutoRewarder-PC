@@ -1,8 +1,8 @@
 [Setup]
 AppName=AutoRewarder
 AppId=AutoRewarder
-AppVersion=4.3.39
-AppPublisher=Sino Safarov
+AppVersion=4.3.40
+AppPublisher=iGlitchOff
 AppPublisherURL=https://github.com/iGlitchOn/AutoRewarder-PC
 DefaultDirName={pf}\AutoRewarder
 DefaultGroupName=AutoRewarder
@@ -70,6 +70,22 @@ begin
   RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarder');
   RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarderGUI');
   DeleteFile(ExpandConstant('{userappdata}\Microsoft\Windows\Start Menu\Programs\Startup\AutoRewarder.lnk'));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  RunCmd: String;
+  Expected: String;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+  { Install must not delete accounts. Only drop a Run command for another exe. }
+  Expected := ExpandConstant('{app}\AutoRewarder.exe');
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarderGUI', RunCmd) then
+  begin
+    if Pos(LowerCase(Expected), LowerCase(RunCmd)) = 0 then
+      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarderGUI');
+  end;
 end;
 
 function InitializeUninstall(): Boolean;

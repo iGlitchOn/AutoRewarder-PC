@@ -250,6 +250,17 @@ function cancel_custom_update() {
   if (panel) panel.hidden = true;
 }
 
+function custom_setup_url(release) {
+  release = release || {};
+  const direct = String(release.download_url || '');
+  if (/^https:\/\/github\.com\/iGlitchOn\/AutoRewarder-PC\/releases\/download\/[^/?#]+\/AutoRewarder-Setup\.exe$/.test(direct)) {
+    return direct;
+  }
+  const tag = String(release.tag || '').trim();
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) return '';
+  return 'https://github.com/iGlitchOn/AutoRewarder-PC/releases/download/' + tag + '/AutoRewarder-Setup.exe';
+}
+
 function download_custom_update() {
   if (!_custom_update_url) return;
   const url = _custom_update_url;
@@ -260,14 +271,16 @@ function download_custom_update() {
   const finish = function () {
     if (download) download.disabled = !_custom_update_url;
   };
-  if (!api || typeof api.open_update_asset !== 'function') {
-    if (api && typeof api.open_link === 'function') api.open_link(url);
+  if (!api || typeof api.install_setup_update !== 'function') {
+    if (text) text.textContent = 'Esta versión no puede instalar AutoRewarder-Setup.exe.';
     finish();
     return;
   }
-  api.open_update_asset(url).then(function (result) {
+  api.install_setup_update(url).then(function (result) {
     if (result && result.ok) {
-      if (text) text.textContent = 'El navegador está abriendo el instalador. Cancela cuando termines.';
+      if (text) text.textContent = 'Instalando AutoRewarder-Setup.exe. La aplicación se cerrará.';
+    } else if (result && result.error === 'refused') {
+      _update_panel('Solo se instala AutoRewarder-Setup.exe de este repositorio.', '');
     } else {
       _update_panel('El archivo ya no está en GitHub. Vuelve a Check updates.', '');
     }
@@ -288,7 +301,7 @@ function show_update_notice(result, manual) {
     update_log_once('Hay una nueva versión del repositorio original (' + original.tag + '). Notifica al desarrollador; no se instalará automáticamente.');
   }
   if (custom) {
-    const fileUrl = String(custom.download_url || '');
+    const fileUrl = custom_setup_url(custom) || String(custom.download_url || '');
     if (fileUrl) {
       _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', fileUrl);
     } else {

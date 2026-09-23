@@ -185,10 +185,20 @@ class BingAppTasks:
             except Exception:
                 data = {}
             if isinstance(data, dict) and data:
+                # Page text is not a getuserinfo counter and must not mark done.
+                data = dict(data)
+                data.pop("checkin", None)
                 out.update(data)
-            if out.get("checkin"):
                 break
         parsed = parse_userinfo(self._userinfo(driver))
+        api_checkin = parsed.get("checkin")
+        if isinstance(api_checkin, (list, tuple)) and len(api_checkin) == 2:
+            try:
+                done, total = int(api_checkin[0]), int(api_checkin[1])
+            except (TypeError, ValueError):
+                done, total = 0, 0
+            if total > 0:
+                out["checkin"] = [done, total]
         news = parsed.get("news")
         if isinstance(news, (list, tuple)) and len(news) == 2:
             try:

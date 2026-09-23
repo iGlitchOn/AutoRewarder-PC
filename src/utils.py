@@ -132,6 +132,24 @@ def release_is_newer(latest, current):
     return _version(latest) > _version(current)
 
 
+def _pick_release_asset(assets):
+    """Prefer AutoRewarder-Setup.exe. Other installers are only a fallback."""
+    assets = list(assets or [])
+    for item in assets:
+        if str((item or {}).get("name") or "") == "AutoRewarder-Setup.exe":
+            return item
+    return next(
+        (
+            item
+            for item in assets
+            if str((item or {}).get("name") or "")
+            .lower()
+            .endswith((".exe", ".msi", ".zip", ".apk"))
+        ),
+        None,
+    )
+
+
 def github_latest_release(repo, logger=None):
     """Return the latest GitHub release metadata for ``repo``.
 
@@ -162,16 +180,7 @@ def github_latest_release(repo, logger=None):
         if not tag:
             return {"ok": False, "error": "no_tag", "repo": repo}
         assets = data.get("assets") or []
-        asset = next(
-            (
-                item
-                for item in assets
-                if str(item.get("name") or "")
-                .lower()
-                .endswith((".exe", ".msi", ".zip", ".apk"))
-            ),
-            None,
-        )
+        asset = _pick_release_asset(assets)
         file_url = str((asset or {}).get("browser_download_url") or "")
         return {
             "ok": True,

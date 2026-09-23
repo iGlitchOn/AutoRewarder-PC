@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -107,15 +108,46 @@ def match_existing_phone(phones, android_id="", name="", model=""):
     return None
 
 
+_JOB_COUNTER = re.compile(r"(\d+)\s*/\s*(\d+)")
+_JOB_REJECT = (
+    "opened",
+    "not verified",
+    "unverified",
+    "no se pudo",
+    "abiertas",
+    "timeout",
+)
+
+
+def client_is_loopback(ip):
+    return str(ip or "") in ("127.0.0.1", "::1")
+
+
+def forget_is_authorized(phone, client_ip):
+    """POST /phone/forget needs a paired phone token, or a loopback client."""
+    if phone:
+        return True
+    return client_is_loopback(client_ip)
+
+
 def event_completes_job(kind, detail=""):
-    """True when a /phone/event should finish a queued PC job."""
+    """True only when detail shows a verified done/total counter.
+
+    Examples that complete: "Check-in 1/1", "Noticias 3/3".
+    Opened, unverified, timeout, and unread getuserinfo do not.
+    """
     kind = str(kind or "")
-    detail_l = str(detail or "").lower()
     if kind not in ("checkin", "news"):
         return False
-    if "opened" in detail_l:
+    detail_l = str(detail or "").lower()
+    if any(token in detail_l for token in _JOB_REJECT):
         return False
-    return True
+    for done_s, total_s in _JOB_COUNTER.findall(detail_l):
+        done = int(done_s)
+        total = int(total_s)
+        if total > 0 and done >= total:
+            return True
+    return False
 
 
 class PhoneBridge:
@@ -897,7 +929,6 @@ class PhoneBridge:
                 raw = json.dumps(payload).encode("utf-8")
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header(
                     "Access-Control-Allow-Headers", "Authorization, Content-Type"
                 )
@@ -926,7 +957,6 @@ class PhoneBridge:
 
             def do_OPTIONS(self):
                 self.send_response(204)
-                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header(
                     "Access-Control-Allow-Headers", "Authorization, Content-Type"
                 )
@@ -968,6 +998,9 @@ class PhoneBridge:
                     return self._json(200, info)
                 if path == "/discover":
                     return self._json(200, bridge.info())
+                if path in ("/update", "/update/apk"):
+                    if not bridge._auth_phone(self._token()):
+                        return self._json(401, {"ok": False, "error": "auth"})
                 if path == "/update":
                     try:
                         from .apk_update import update_payload
@@ -1106,6 +1139,10 @@ class PhoneBridge:
                         )
                     return self._json(200, {"ok": True, "id": job_id})
                 if path == "/phone/forget":
+                    ip = self.client_address[0] if self.client_address else ""
+                    phone = bridge._auth_phone(self._token())
+                    if not forget_is_authorized(phone, ip):
+                        return self._json(401, {"ok": False, "error": "auth"})
                     removed = bridge.forget_phone(
                         str(body.get("android_id") or ""),
                         str(body.get("name") or ""),
@@ -1146,11 +1183,7 @@ class PhoneBridge:
                         if last and time.time() - float(last) >= 120:
                             fails = 0
                         bridge._pair_fails[ip] = (fails + 1, time.time())
-                        print(
-                            f"Pair rejected from {ip}: code={code!r} "
-                            f"active={bridge._pair_code!r} "
-                            f"until={int(bridge._pair_until)}"
-                        )
+                        print(f"Pair rejected from {ip}")
                         if bridge._pair_expired(code):
                             return self._json(
                                 400,
@@ -1230,8 +1263,6 @@ class PhoneBridge:
                         + str(phone["name"])
                         + " -> "
                         + str(acc.get("label"))
-                        + " code="
-                        + str(code)
                     )
                     threading.Thread(
                         target=bridge._notify_ui,
