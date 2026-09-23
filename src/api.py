@@ -267,7 +267,7 @@ class AutoRewarderAPI:
             )
             self.stats = StatsManager(stats_path(current_id), logger=self.log)
             self.driver_manager = DriverManager(
-                profile_path=profile, hide_browser=self.hide_browser
+                profile_path=profile, hide_browser=self.hide_browser, logger=self.log
             )
             self.search_engine = SearchEngine(logger=self.log, history=self.history)
         else:
@@ -276,7 +276,7 @@ class AutoRewarderAPI:
             self.daily_set = None
             self.stats = None
             self.driver_manager = DriverManager(
-                profile_path=None, hide_browser=self.hide_browser
+                profile_path=None, hide_browser=self.hide_browser, logger=self.log
             )
             self.search_engine = SearchEngine(logger=self.log, history=None)
 

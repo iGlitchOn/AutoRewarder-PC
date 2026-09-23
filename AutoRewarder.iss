@@ -1,7 +1,7 @@
 [Setup]
 AppName=AutoRewarder
 AppId=AutoRewarder
-AppVersion=4.3.42
+AppVersion=4.3.43
 AppPublisher=iGlitchOff
 AppPublisherURL=https://github.com/iGlitchOn/AutoRewarder-PC
 DefaultDirName={pf}\AutoRewarder
@@ -178,13 +178,13 @@ begin
   if not CheckDependencies then
     Abort;
 
-  MsgBox('AutoRewarder will be installed.' + #13#10#13#10 +
+  SuppressibleMsgBox('AutoRewarder will be installed.' + #13#10#13#10 +
          'System Requirements:' + #13#10 +
          '• Windows 10 or later' + #13#10 +
          '• Microsoft Edge' + #13#10 +
          '• .NET Framework 4.8 or higher' + #13#10#13#10 +
          'After installation, you can access the User Guide on GitHub.',
-         mbInformation, MB_OK);
+         mbInformation, MB_OK, IDOK);
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;

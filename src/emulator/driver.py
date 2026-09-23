@@ -6,6 +6,7 @@ import platform
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import urllib.request
 
@@ -25,18 +26,24 @@ class DriverManager:
     different profile_path.
     """
 
-    def __init__(self, profile_path=None, hide_browser=False):
+    def __init__(self, profile_path=None, hide_browser=False, logger=None):
         """
         Args:
             profile_path (str | None): Absolute path to the Selenium --user-data-dir
                 directory. None when no account is selected (empty state). In that
                 case setup_driver will raise, since there is nothing to launch.
             hide_browser (bool): Whether to run the browser in headless mode.
+            logger: Optional callable for a one-line hide failure. Not the token log.
         """
         self.profile_path = profile_path
         self.hide_browser = hide_browser
+        self.logger = logger
         self._native_pids = []
         self._debug_ports = []
+        self._hidden_desktop_id = None
+        self._hidden_desktop_fallback_id = None
+        self._vd_fail_logged = False
+        self._vd_lock = threading.Lock()
 
     @staticmethod
     def _edge_version():
@@ -343,7 +350,9 @@ class DriverManager:
             # Stop Edge from spawning a second process and exiting the first.
             options.add_argument("--edge-skip-compat-layer-relaunch")
             options.add_argument(
-                "--disable-features=msEdgeStartupBoost,msEdgeSleepingTabs"
+                self._disable_features(
+                    ("msEdgeStartupBoost", "msEdgeSleepingTabs"), headless
+                )
             )
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
@@ -358,18 +367,26 @@ class DriverManager:
 
             if disable_identity:
                 options.add_argument(
-                    "--disable-features=msImplicitSignin,AadSsoUrlInterceptionEnabled,"
-                    "WebOtpBackendAuto,IdentityConsistency,msIdentityWebSignIn,"
-                    "msEdgeIdentitySyncInterception"
+                    self._disable_features(
+                        (
+                            "msImplicitSignin",
+                            "AadSsoUrlInterceptionEnabled",
+                            "WebOtpBackendAuto",
+                            "IdentityConsistency",
+                            "msIdentityWebSignIn",
+                            "msEdgeIdentitySyncInterception",
+                        ),
+                        headless,
+                    )
                 )
                 options.add_argument("--disable-sync")
 
             if headless:
-                # Off-screen window, not --headless=new. Chromium headless
-                # often skips painting the Next.js /earn cards, so quizzes
-                # and puzzles never appear. An off-screen GPU window still
-                # hydrates and can credit Rewards.
-                options.add_argument("--window-position=-32000,-32000")
+                # Another Task View desktop, not --window-position. Unplugging
+                # a monitor pulls a coordinate-parked window back on screen.
+                # These flags keep Chromium painting on a desktop that is not
+                # the one the user is looking at.
+                options.add_argument("--disable-backgrounding-occluded-windows")
 
             if recovery_mode:
                 options.add_argument("--disable-gpu")
@@ -516,7 +533,174 @@ class DriverManager:
         except Exception:
             pass
         self._apply_command_timeout(_driver, 30)
+        if headless:
+            self._hide_edge_on_virtual_desktop(_driver)
+            self._bind_hidden_desktop_quit(_driver)
         return _driver
+
+    @staticmethod
+    def _disable_features(names, hide):
+        items = []
+        for name in names:
+            if name and name not in items:
+                items.append(name)
+        if hide and "CalculateNativeWinOcclusion" not in items:
+            items.append("CalculateNativeWinOcclusion")
+        return "--disable-features=" + ",".join(items)
+
+    def _log_vd_once(self, message):
+        if self._vd_fail_logged:
+            return
+        self._vd_fail_logged = True
+        logger = self.logger
+        if logger is not None:
+            try:
+                logger(message)
+                return
+            except Exception:
+                pass
+        print(message)
+
+    def _edge_ports(self, driver=None):
+        ports = []
+        for port in getattr(self, "_debug_ports", []) or []:
+            try:
+                ports.append(int(port))
+            except (TypeError, ValueError):
+                continue
+        if driver is None:
+            return ports
+        caps = getattr(driver, "capabilities", None) or {}
+        for key in ("ms:edgeOptions", "goog:chromeOptions"):
+            opts = caps.get(key) or {}
+            if not isinstance(opts, dict):
+                continue
+            addr = str(opts.get("debuggerAddress") or "")
+            if ":" not in addr:
+                continue
+            try:
+                port = int(addr.rsplit(":", 1)[-1])
+            except ValueError:
+                continue
+            if port not in ports:
+                ports.append(port)
+        return ports
+
+    def _hide_edge_on_virtual_desktop(self, driver=None):
+        """Move this account's Edge onto one new desktop. Do not switch desktops."""
+        if platform.system() != "Windows":
+            return
+        with self._vd_lock:
+            self._hide_edge_locked(driver)
+
+    def _hide_edge_locked(self, driver):
+        from .virtual_desktop import (
+            create_desktop,
+            desktop_exists,
+            edge_hwnds,
+            move_window_to_desktop,
+            remove_desktop,
+            restore_normal_position,
+        )
+
+        hwnds = []
+        deadline = time.time() + 4
+        while True:
+            hwnds = edge_hwnds(self.profile_path, self._edge_ports(driver))
+            if hwnds or time.time() >= deadline:
+                break
+            time.sleep(0.15)
+        if not hwnds:
+            self._log_vd_once(
+                "Could not find the Edge window to move to a virtual desktop. "
+                "It stays on this desktop."
+            )
+            return
+        desktop_id = self._hidden_desktop_id
+        fallback_id = self._hidden_desktop_fallback_id
+        if desktop_id:
+            try:
+                exists = desktop_exists(desktop_id)
+            except Exception:
+                exists = True
+            if not exists:
+                desktop_id = None
+                self._hidden_desktop_id = None
+                self._hidden_desktop_fallback_id = None
+        created_now = False
+        if not desktop_id:
+            try:
+                desktop_id, fallback_id = create_desktop()
+            except Exception:
+                desktop_id = None
+            if not desktop_id:
+                self._log_vd_once(
+                    "Could not create a virtual desktop to hide Edge. "
+                    "The window stays on this desktop."
+                )
+                restore_normal_position(hwnds)
+                return
+            created_now = True
+            self._hidden_desktop_id = desktop_id
+            self._hidden_desktop_fallback_id = fallback_id
+        moved = False
+        for hwnd in hwnds:
+            try:
+                if move_window_to_desktop(hwnd, desktop_id):
+                    moved = True
+            except Exception:
+                continue
+        if moved:
+            return
+        if created_now:
+            try:
+                removed = remove_desktop(desktop_id, fallback_id)
+            except Exception:
+                removed = False
+            if removed:
+                self._hidden_desktop_id = None
+                self._hidden_desktop_fallback_id = None
+        self._log_vd_once(
+            "Could not move Edge onto a virtual desktop. "
+            "The window stays on this desktop."
+        )
+        restore_normal_position(hwnds)
+
+    def _bind_hidden_desktop_quit(self, driver):
+        if driver is None or getattr(driver, "_ar_vd_quit_bound", False):
+            return
+        original = driver.quit
+        manager = self
+
+        def _quit(*args, **kwargs):
+            try:
+                return original(*args, **kwargs)
+            finally:
+                manager.release_hidden_desktop()
+
+        driver.quit = _quit
+        driver._ar_vd_quit_bound = True
+
+    def release_hidden_desktop(self):
+        """Remove only the desktop this process created. No-op if create failed."""
+        if platform.system() != "Windows":
+            self._hidden_desktop_id = None
+            self._hidden_desktop_fallback_id = None
+            return
+        with self._vd_lock:
+            desktop_id = self._hidden_desktop_id
+            fallback_id = self._hidden_desktop_fallback_id
+            if not desktop_id:
+                return
+            from .virtual_desktop import remove_desktop
+
+            try:
+                gone = remove_desktop(desktop_id, fallback_id)
+            except Exception:
+                gone = False
+            if gone:
+                self._hidden_desktop_id = None
+                self._hidden_desktop_fallback_id = None
 
     @staticmethod
     def _apply_command_timeout(driver, seconds=30):
@@ -760,6 +944,7 @@ class DriverManager:
                 wait,
             )
         self._clear_profile_locks()
+        self.release_hidden_desktop()
 
     @classmethod
     def kill_all_autorewarder_edge(cls, wait=False):
@@ -827,6 +1012,7 @@ class DriverManager:
         except Exception:
             pass
         self._clear_profile_locks()
+        self.release_hidden_desktop()
         if settle:
             time.sleep(0.35)
         return 0
@@ -865,6 +1051,9 @@ class DriverManager:
         if wait_or_stop(0.4, stop_event):
             raise RuntimeError("stopped")
         os.makedirs(self.profile_path, exist_ok=True)
+        features = ["msEdgeStartupBoost", "msEdgeSleepingTabs"]
+        if hide:
+            features.append("CalculateNativeWinOcclusion")
         args = [
             self.edge_binary(),
             f"--user-data-dir={self.profile_path}",
@@ -872,15 +1061,15 @@ class DriverManager:
             "--no-first-run",
             "--no-default-browser-check",
             "--edge-skip-compat-layer-relaunch",
-            "--disable-features=msEdgeStartupBoost,msEdgeSleepingTabs",
+            "--disable-features=" + ",".join(features),
             "--disable-background-mode",
             f"--remote-debugging-port={port}",
             "--remote-allow-origins=*",
             "--start-maximized",
-            url or "https://www.bing.com/?form=EDGNTC",
         ]
         if hide:
-            args.insert(-1, "--window-position=-32000,-32000")
+            args.append("--disable-backgrounding-occluded-windows")
+        args.append(url or "https://www.bing.com/?form=EDGNTC")
         creationflags = (
             0x00000010 if platform.system() == "Windows" else 0
         )  # CREATE_NEW_CONSOLE off; use DETACHED
@@ -898,11 +1087,14 @@ class DriverManager:
         except Exception:
             pass
         self._remember_debug_port(port)
+        if hide:
+            self._hide_edge_on_virtual_desktop()
         if wait_or_stop(1.5, stop_event):
             try:
                 proc.kill()
             except Exception:
                 pass
+            self.release_hidden_desktop()
             raise RuntimeError("stopped")
         return proc, port
 

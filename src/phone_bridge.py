@@ -28,7 +28,8 @@ BRIDGE_PORT = 38471
 BEACON_PORT = 38472
 PROTOCOL_VERSION = 2
 PHONE_JOB_KINDS = frozenset(("checkin", "news"))
-PHONE_ONLINE_SEC = 900
+# Heartbeats are about every 5s. One threshold for the GUI and for jobs.
+PHONE_ONLINE_SEC = 20
 PC_RUN_MODES = frozenset(("start", "tasks", "edge"))
 
 
@@ -171,6 +172,8 @@ class PhoneBridge:
         self._pair_fails = {}
         self._pair_replay = None
         self._valid_codes = []
+        self._seen_online = {}
+        self._offline_announced = set()
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -280,9 +283,9 @@ class PhoneBridge:
         if self.api.account_meta is not None:
             phones = self.api.account_meta.get_phones()
         now = time.time()
+        self._note_phone_offline(phones, now)
         public = []
         for p in phones:
-            seen = p.get("last_seen_ts") or 0
             public.append(
                 {
                     "id": p.get("id"),
@@ -290,7 +293,7 @@ class PhoneBridge:
                     "model": p.get("model") or "",
                     "paired_at": p.get("paired_at"),
                     "last_seen": p.get("last_seen"),
-                    "online": (now - float(seen)) < 45,
+                    "online": self._phone_online(p, now),
                 }
             )
         public_url = None
@@ -573,15 +576,48 @@ class PhoneBridge:
         )
         return self.wait_job(job_id, timeout=timeout)
 
+    def _phone_online(self, phone, now=None):
+        now = time.time() if now is None else now
+        try:
+            seen = float((phone or {}).get("last_seen_ts") or 0)
+        except (TypeError, ValueError):
+            seen = 0.0
+        return (now - seen) < PHONE_ONLINE_SEC
+
+    def _note_phone_offline(self, phones, now=None):
+        """Log once when a phone that was online crosses PHONE_ONLINE_SEC."""
+        now = time.time() if now is None else now
+        pending = []
+        with self._lock:
+            for phone in phones or []:
+                if not isinstance(phone, dict):
+                    continue
+                pid = str(phone.get("id") or "")
+                if not pid:
+                    continue
+                name = phone.get("name") or "Phone"
+                if self._phone_online(phone, now):
+                    self._seen_online[pid] = name
+                    self._offline_announced.discard(pid)
+                    continue
+                if pid not in self._seen_online or pid in self._offline_announced:
+                    continue
+                self._offline_announced.add(pid)
+                pending.append(self._seen_online.get(pid) or name)
+        for name in pending:
+            message = f"Phone {name} offline."
+            try:
+                self.api._safe_log(message)
+            except Exception:
+                print(message)
+
     def _online_phones(self):
         if self.api.account_meta is None:
             return []
+        phones = self.api.account_meta.get_phones()
         now = time.time()
-        return [
-            p
-            for p in self.api.account_meta.get_phones()
-            if (now - float(p.get("last_seen_ts") or 0)) < PHONE_ONLINE_SEC
-        ]
+        self._note_phone_offline(phones, now)
+        return [p for p in phones if self._phone_online(p, now)]
 
     def bing_market(self):
         """setmkt the linked phone should use for check-in and news."""
@@ -693,14 +729,8 @@ class PhoneBridge:
     def _phones_for_account(self, account_id):
         phones = self._all_phones_for_account(account_id)
         now = time.time()
-        online = [
-            p
-            for p in phones
-            if (now - float(p.get("last_seen_ts") or 0)) < PHONE_ONLINE_SEC
-        ]
-        if online:
-            return online
-        return [p for p in phones if p.get("token")]
+        self._note_phone_offline(phones, now)
+        return [p for p in phones if self._phone_online(p, now)]
 
     def _iter_account_phones(self):
         order = []
@@ -870,6 +900,11 @@ class PhoneBridge:
     def _touch(self, phone):
         phone["last_seen"] = datetime.now().isoformat(timespec="seconds")
         phone["last_seen_ts"] = time.time()
+        pid = str(phone.get("id") or "")
+        if pid:
+            with self._lock:
+                self._seen_online[pid] = phone.get("name") or "Phone"
+                self._offline_announced.discard(pid)
         aid = phone.get("_account_id") or self._current_account_id()
         if aid:
             self._upsert_phone_for_account(aid, phone)

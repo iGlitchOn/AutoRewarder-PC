@@ -987,49 +987,13 @@ class NewDashboardDailySet:
 
     # -- Top-level entry point -------------------------------------------------
 
-    def _window_is_offscreen(self, driver):
-        try:
-            pos = driver.get_window_position() or {}
-            return int(pos.get("x") or 0) < -500 or int(pos.get("y") or 0) < -500
-        except Exception:
-            return False
-
-    def _ensure_on_screen(self, driver):
-        """hide_browser parks Edge at -32000; Next.js then never paints claim/cards."""
-        self._was_offscreen = self._window_is_offscreen(driver)
-        try:
-            driver.set_window_rect(x=80, y=80, width=1280, height=800)
-        except Exception:
-            try:
-                driver.set_window_position(80, 80)
-                driver.set_window_size(1280, 800)
-            except Exception:
-                return
-        if self._was_offscreen:
-            self._log(
-                "hide_browser had Edge off-screen; moved on-screen so "
-                "Daily Set / claim / punchcards paint."
-            )
-
-    def _restore_off_screen(self, driver):
-        if not getattr(self, "_was_offscreen", False):
-            return
-        try:
-            driver.set_window_position(-32000, -32000)
-        except Exception:
-            pass
-
     def perform(self, driver, human, stop_event=None):
         """
         Verify each Rewards function against the live dashboard, then run or
         skip with a reason. Order: Daily Set, Ready to claim, earn-page,
         punchcards, Edge minutes. Visual Search / mobile app are the caller.
         """
-        self._ensure_on_screen(driver)
-        try:
-            return self._perform_inner(driver, human, stop_event)
-        finally:
-            self._restore_off_screen(driver)
+        return self._perform_inner(driver, human, stop_event)
 
     def _perform_inner(self, driver, human, stop_event=None):
         self.needs_edge_browse = False
@@ -1304,8 +1268,8 @@ class NewDashboardDailySet:
         try:
             if navigate:
                 self._safe_get(driver, DASHBOARD_URL)
-                self._wait_ready(driver, timeout=8)
-                time.sleep(0.6)
+                self._wait_ready(driver, timeout=15)
+                time.sleep(random.uniform(1.5, 2.5))
             data = driver.execute_script(_VS_STREAK_PROGRESS_JS)
         except Exception:
             return None
@@ -1402,8 +1366,8 @@ class NewDashboardDailySet:
             self._log("[ERROR] Could not open the dashboard to claim.")
             self._claim_still_open((self.live_progress or {}).get("claim"))
             return
-        self._wait_ready(driver, timeout=8)
-        time.sleep(0.6)
+        self._wait_ready(driver, timeout=15)
+        time.sleep(random.uniform(1.5, 2.5))
 
         live = self.read_live_progress(driver, navigate=False)
         pending_live = live.get("claim")
@@ -1589,8 +1553,8 @@ class NewDashboardDailySet:
             self._log("[WARNING] Could not open the earn page.")
             return
 
-        self._wait_for(driver, "#moreactivities", timeout=8)
-        time.sleep(0.6)
+        self._wait_for(driver, "#moreactivities", timeout=15)
+        time.sleep(random.uniform(1.5, 2.5))
         self._expand_section(driver, "moreactivities")
         time.sleep(random.uniform(0.5, 1.0))
 
@@ -1700,7 +1664,7 @@ class NewDashboardDailySet:
                         url,
                     )
             return
-        self._wait_ready(driver, timeout=8)
+        self._wait_ready(driver, timeout=15)
 
         # Quest cards sit in a collapsible panel and stream in progressively.
         # Expand every collapsed section, then poll discovery until the set of
@@ -1947,8 +1911,9 @@ class NewDashboardDailySet:
         try:
             if not already_on_dashboard:
                 self._safe_get(driver, DASHBOARD_URL)
-            self._wait_ready(driver, timeout=8)
-            if wait_or_stop(0.8, stop_event):
+            self._wait_ready(driver, timeout=15)
+            # Late RSC chunks still stream in after the page is ready.
+            if wait_or_stop(random.uniform(2, 3), stop_event):
                 return False
             self._log("Daily Set: reading card list...")
 

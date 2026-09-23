@@ -24,6 +24,7 @@ a = Analysis(
         'src.tunnel',
         'src.qr_png',
         'src.apk_update',
+        'src.emulator.virtual_desktop',
         'qrcode',
     ],
     hookspath=[],
