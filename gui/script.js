@@ -237,13 +237,21 @@ function _update_panel(message, url) {
   if (!panel || !text) return;
   text.textContent = message || '';
   _custom_update_url = String(url || '');
-  if (download) download.disabled = !_custom_update_url;
+  if (download) {
+    download.hidden = !_custom_update_url;
+    download.disabled = !_custom_update_url;
+  }
   panel.hidden = !message;
 }
 
 function cancel_custom_update() {
   _custom_update_url = '';
   const panel = document.getElementById('updates_panel');
+  const download = document.getElementById('updates_download_btn');
+  if (download) {
+    download.hidden = true;
+    download.disabled = true;
+  }
   if (panel) panel.hidden = true;
 }
 

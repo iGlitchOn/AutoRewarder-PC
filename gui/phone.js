@@ -802,7 +802,11 @@ function setUpdateBanner(msg, warn) {
   else el.textContent = msg;
   el.classList.toggle("warn", !!warn);
   const download = document.getElementById("update_download_btn");
-  if (download && !state.pendingPhoneUpdate) download.disabled = true;
+  const canDownload = !!(state.pendingPhoneUpdate && state.pendingPhoneUpdate.download_url);
+  if (download) {
+    download.hidden = !canDownload;
+    download.disabled = !canDownload;
+  }
 }
 
 function cancelPhoneUpdate() {
@@ -874,11 +878,13 @@ async function checkPhoneUpdate(manual) {
       if (custom.download_url) {
         setUpdateBanner("Nueva actualización propia " + custom.tag + ". ¿Quieres descargarla?");
       } else {
+        state.pendingPhoneUpdate = null;
         setUpdateBanner("Nueva versión propia " + custom.tag + ", pero todavía no hay un APK adjunto.", true);
         const download = document.getElementById("update_download_btn");
         if (download) download.disabled = true;
       }
     } else if (manual) {
+      state.pendingPhoneUpdate = null;
       setUpdateBanner("No hay una actualización propia disponible.");
       setTimeout(function () { if (!state.pendingPhoneUpdate) setUpdateBanner(""); }, 4000);
     }
