@@ -1616,6 +1616,8 @@ window.addEventListener('pywebviewready', function() {
   setup_activity_context_menu();
   refresh_manual_tasks();
   refresh_phone_ui();
+  // Refresh quests while either app tab is open; the API is single-flight.
+  setInterval(refresh_manual_tasks, 15000);
   setInterval(function () {
     const modal = document.getElementById('phone_pair_modal');
     if (modal && !modal.hidden) refresh_phone_ui();
@@ -1653,8 +1655,10 @@ function switch_app_tab(name) {
 }
 
 function refresh_manual_tasks() {
-  if (!window.pywebview || !pywebview.api || !pywebview.api.get_manual_tasks) return;
-  pywebview.api.get_manual_tasks().then(render_manual_tasks).catch(function () {});
+  if (!window.pywebview || !pywebview.api) return;
+  const loader = pywebview.api.refresh_manual_tasks || pywebview.api.get_manual_tasks;
+  if (!loader) return;
+  loader().then(render_manual_tasks).catch(function () {});
 }
 
 function render_manual_tasks(data) {
@@ -1673,7 +1677,9 @@ function render_manual_tasks(data) {
   if (!active.length) {
     const empty = document.createElement('p');
     empty.className = 'manual-empty';
-    empty.textContent = 'No open quests yet. Run Tasks only to load them from your Rewards /earn page.';
+    empty.textContent = data && data.refreshing
+      ? 'Detecting quests automatically from Rewards /earn…'
+      : 'No open quests detected yet. The list refreshes automatically.';
     list.appendChild(empty);
   }
   active.forEach(function (t) { list.appendChild(_manual_row(t, false)); });

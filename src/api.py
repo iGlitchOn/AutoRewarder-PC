@@ -127,6 +127,10 @@ class AutoRewarderAPI:
         self._stats_lock = threading.Lock()
         self._points_refresh_thread_started = False
         self._points_refresh_stop = threading.Event()
+        # Automatic quest discovery must be single-flight because it uses the
+        # same Edge profile as balance refreshes and scheduled runs.
+        self._manual_refresh_lock = threading.Lock()
+        self._manual_refreshing = False
         # Set when the user clicks Stop. Long loops in search_engine and
         # daily_set poll this between iterations and bail out cleanly.
         self._stop_event = threading.Event()
@@ -2733,7 +2737,7 @@ class AutoRewarderAPI:
     def get_manual_tasks(self):
         """Open quests scraped from this account's /earn page (For you tab)."""
         if self.account_meta is None:
-            return {"tasks": [], "ignored": [], "removed": []}
+            return {"tasks": [], "ignored": [], "removed": [], "refreshing": False}
         from .dailytasks.manual import list_tasks
 
         prefs = self.account_meta.get_manual_prefs()
@@ -2744,7 +2748,64 @@ class AutoRewarderAPI:
             "tasks": list_tasks(prefs["ignored"], prefs["removed"], live),
             "ignored": prefs["ignored"],
             "removed": prefs["removed"],
+            "refreshing": bool(self._manual_refreshing),
         }
+
+    def refresh_manual_tasks(self):
+        """Start a non-blocking hidden /earn scrape and return cached tasks."""
+        data = self.get_manual_tasks()
+        account_id = self.account_manager.current_id()
+        if (
+            account_id is None
+            or self.account_meta is None
+            or not self.account_meta.is_first_setup_done()
+            or self._run_lock.locked()
+            or self.is_driver_loading
+        ):
+            return data
+        if not self._manual_refresh_lock.acquire(blocking=False):
+            data["refreshing"] = True
+            return data
+        self._manual_refreshing = True
+        data["refreshing"] = True
+        threading.Thread(
+            target=self._refresh_manual_tasks_worker,
+            args=(account_id,),
+            daemon=True,
+        ).start()
+        return data
+
+    def _refresh_manual_tasks_worker(self, account_id):
+        driver = None
+        balance_claimed = False
+        try:
+            if self._run_lock.locked() or self.is_driver_loading:
+                return
+            if not self._balance_lock.acquire(blocking=False):
+                return
+            balance_claimed = True
+            driver = self.driver_manager.setup_driver(headless=True)
+            live = self.daily_set.collect_for_you(driver)
+            if self.account_manager.current_id() != account_id:
+                return
+            self.daily_set.for_you_tasks = list(live or [])
+            if self.account_meta is not None:
+                self.account_meta.set_live_manual_tasks(self.daily_set.for_you_tasks)
+            self._safe_log(
+                f"For you: {len(self.daily_set.for_you_tasks)} quest(s) detected automatically."
+            )
+        except Exception as e:
+            self._safe_log(f"[WARNING] Automatic quest detection failed: {e}")
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+            if balance_claimed:
+                self._balance_lock.release()
+            self._manual_refreshing = False
+            self._manual_refresh_lock.release()
 
     def ignore_manual_task(self, task_id, ignored=True):
         if self.account_meta is None:
