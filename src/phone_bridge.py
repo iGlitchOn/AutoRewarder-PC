@@ -23,6 +23,11 @@ from .config import APP_DIR, CURRENT_VERSION, GUI_DIR
 
 BRIDGE_PORT = 38471
 BEACON_PORT = 38472
+# A backgrounded Android app can miss one heartbeat. Keep it online through
+# that gap, but remove a record that has clearly disappeared (uninstall/data
+# wipe) so the PC cannot display a dead phone forever.
+PHONE_ONLINE_SECONDS = 90
+PHONE_STALE_SECONDS = 180
 
 
 def _pair_secret():
@@ -114,6 +119,7 @@ class PhoneBridge:
                 pass
 
     def info(self):
+        self._prune_stale_phones()
         phones = []
         if self.api.account_meta is not None:
             phones = self.api.account_meta.get_phones()
@@ -128,7 +134,7 @@ class PhoneBridge:
                     "model": p.get("model") or "",
                     "paired_at": p.get("paired_at"),
                     "last_seen": p.get("last_seen"),
-                    "online": (now - float(seen)) < 45,
+                    "online": (now - float(seen)) < PHONE_ONLINE_SECONDS,
                 }
             )
         public_url = None
@@ -293,12 +299,30 @@ class PhoneBridge:
     def _online_phones(self):
         if self.api.account_meta is None:
             return []
+        self._prune_stale_phones()
         now = time.time()
         return [
             p
             for p in self.api.account_meta.get_phones()
-            if (now - float(p.get("last_seen_ts") or 0)) < 45
+            if (now - float(p.get("last_seen_ts") or 0)) < PHONE_ONLINE_SECONDS
         ]
+
+    def _prune_stale_phones(self):
+        """Forget phones that vanished without sending an unlink request."""
+        if self.api.account_meta is None:
+            return []
+        now = time.time()
+        removed = []
+        for phone in self.api.account_meta.get_phones():
+            seen = float(phone.get("last_seen_ts") or 0)
+            if seen <= 0 or now - seen <= PHONE_STALE_SECONDS:
+                continue
+            phone_id = phone.get("id")
+            if self.api.account_meta.remove_phone(phone_id):
+                removed.append(phone.get("name") or phone_id or "Phone")
+        if removed:
+            print("Phone records expired: " + ", ".join(map(str, removed)))
+        return removed
 
     # -- internals ----------------------------------------------------------
 
