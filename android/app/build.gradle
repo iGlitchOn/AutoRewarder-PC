@@ -1,0 +1,67 @@
+plugins {
+    id 'com.android.application'
+}
+
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
+android {
+    namespace 'off.iglitch.autorewarder'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "off.iglitch.autorewarder"
+        minSdk 26
+        targetSdk 34
+    versionCode 20
+    versionName "4.3.46"
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            debuggable false
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.register('syncWebAssets', Copy) {
+    from("${rootDir}/../gui") {
+        include 'phone.html'
+        include 'phone.js'
+        include 'i18n.js'
+        include 'styles.css'
+        include 'normalize.css'
+    }
+    into "${projectDir}/src/main/assets/www"
+}
+
+preBuild.dependsOn syncWebAssets
+
+dependencies {
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'androidx.core:core:1.13.1'
+}

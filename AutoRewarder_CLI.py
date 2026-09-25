@@ -83,10 +83,9 @@ def _run_once(api, pc, mobile):
     """
     console_log(f"Single run: PC={pc}, Mobile={mobile}")
     try:
-        return bool(api.main(int(pc), int(mobile)))
+        api.main(int(pc), int(mobile))
     except Exception as e:
         console_log(f"[ERROR] Run failed: {e}")
-        return False
 
 
 def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
@@ -117,7 +116,7 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
 
     if total <= 0:
         console_log("Nothing scheduled (PC + Mobile = 0).")
-        return False
+        return
 
     # Batch sizing heuristic identical to v3.1 main's runner.
     if qph > 0:
@@ -136,8 +135,6 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
 
     pc_left = pc
     mobile_left = mobile
-    finished = True
-    stopped_batch = 0
 
     for i in range(num_batches):
         # Take from PC first until exhausted, then switch to Mobile.
@@ -156,16 +153,9 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
             f"(PC left {pc_left}, Mobile left {mobile_left})"
         )
         try:
-            if not api.main(batch_pc, batch_mobile, False, False):
-                console_log(f"[ERROR] Batch {i+1} did not complete.")
-                finished = False
-                stopped_batch = i + 1
-                break
+            api.main(batch_pc, batch_mobile)
         except Exception as e:
             console_log(f"[ERROR] Batch {i+1} failed: {e}")
-            finished = False
-            stopped_batch = i + 1
-            break
 
         pc_left -= batch_pc
         mobile_left -= batch_mobile
@@ -177,11 +167,7 @@ def _run_scheduled(api, pc, mobile, duration_hours, queries_per_hour):
         console_log(f"Sleeping {sleep_time:.1f}s until next batch")
         time.sleep(sleep_time)
 
-    if finished:
-        console_log("Scheduled run complete.")
-    else:
-        console_log(f"Scheduled run stopped. Batch {stopped_batch}.")
-    return finished
+    console_log("Scheduled run complete.")
 
 
 # ---------------------------------------------------------------------------
@@ -249,17 +235,7 @@ def _mark_triggered_today(account_id):
     """
     meta = AccountMetaManager(account_id)
     sched = meta.get_schedule()
-    today = date.today().isoformat()
-    sched["last_triggered_date"] = today
-    sched["last_success_date"] = today
-    meta.set_schedule(sched)
-
-
-def _mark_attempt_today(account_id):
-    """Record that a run started. Does not skip later retries today."""
-    meta = AccountMetaManager(account_id)
-    sched = meta.get_schedule()
-    sched["last_attempt_date"] = date.today().isoformat()
+    sched["last_triggered_date"] = date.today().isoformat()
     meta.set_schedule(sched)
 
 
@@ -330,39 +306,24 @@ def _run_account(api, acc, pc_override=None, mobile_override=None, force=False):
         if api.stats is not None:
             api.stats._logger = console_log
 
-    _mark_attempt_today(aid)
-
-    ok = False
-    try:
-        if sched.get("advancedScheduling") and (
-            pc_override is None and mobile_override is None
-        ):
-            ok = _run_scheduled(
-                api,
-                pc,
-                mobile,
-                sched.get("runDuration", 3),
-                sched.get("queriesPerHour", 10),
-            )
-        else:
-            ok = _run_once(api, pc, mobile)
-    except Exception as e:
-        console_log(f"[ERROR] '{label}' failed: {e}")
-        ok = False
-    if not ok and pc_override is None and mobile_override is None:
-        console_log(f"Retrying '{label}' once after 30 seconds…")
-        time.sleep(30)
-        try:
-            ok = _run_once(api, pc, mobile)
-        except Exception as e:
-            console_log(f"[ERROR] '{label}' retry failed: {e}")
-            ok = False
-
-    # Only stamp the day after a finished run so a crash can still retry today.
-    if ok and pc_override is None and mobile_override is None:
+    # Mark triggered BEFORE the run so a crash doesn't produce a second run.
+    if pc_override is None and mobile_override is None:
         _mark_triggered_today(aid)
 
-    return bool(ok)
+    if sched.get("advancedScheduling") and (
+        pc_override is None and mobile_override is None
+    ):
+        _run_scheduled(
+            api,
+            pc,
+            mobile,
+            sched.get("runDuration", 3),
+            sched.get("queriesPerHour", 10),
+        )
+    else:
+        _run_once(api, pc, mobile)
+
+    return True
 
 
 def main():
@@ -390,51 +351,35 @@ def main():
     if args.mobile is not None and args.mobile < 0:
         parser.error("--mobile must be >= 0")
 
-    from src.utils import HeadlessRunLock, gui_instance_running
+    api = _create_headless_api()
 
-    if gui_instance_running():
-        console_log(
-            "GUI is open; skipping this scheduled run so Edge profiles are not shared."
+    accounts = api.account_manager.list()
+    if not accounts:
+        console_log("No accounts configured. Nothing to do.")
+        return
+
+    if args.account:
+        acc = _resolve_account(api, args.account)
+        if acc is None:
+            console_log(f"[ERROR] No account matches '{args.account}'.")
+            return
+        _run_account(
+            api,
+            acc,
+            pc_override=args.pc,
+            mobile_override=args.mobile,
+            force=args.force,
         )
         return
 
-    run_lock = HeadlessRunLock()
-    # Other schtasks at the same hour wait instead of killing each other's Edge.
-    if not run_lock.acquire(wait_s=4 * 3600):
-        console_log(
-            "Another headless AutoRewarder is still running. Giving up this trigger."
-        )
-        return
-    try:
-        api = _create_headless_api()
-
-        accounts = api.account_manager.list()
-        if not accounts:
-            console_log("No accounts configured. Nothing to do.")
-            return
-
-        if args.account:
-            acc = _resolve_account(api, args.account)
-            if acc is None:
-                console_log(f"[ERROR] No account matches '{args.account}'.")
-                return
-            _run_account(
-                api,
-                acc,
-                pc_override=args.pc,
-                mobile_override=args.mobile,
-                force=args.force,
-            )
-            return
-
-        ran_any = False
-        for acc in accounts:
-            if _run_account(api, acc, force=args.force):
-                ran_any = True
-        if not ran_any:
-            console_log("No schedules matched today.")
-    finally:
-        run_lock.release()
+    # Default: iterate every enabled schedule. api._run_lock ensures only one
+    # run executes at a time inside the process.
+    ran_any = False
+    for acc in accounts:
+        if _run_account(api, acc, force=args.force):
+            ran_any = True
+    if not ran_any:
+        console_log("No schedules matched today.")
 
 
 if __name__ == "__main__":

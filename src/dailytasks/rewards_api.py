@@ -17,83 +17,26 @@ SKIP_TITLE_RE = re.compile(
 )
 SKIP_URL_RE = re.compile(
     r"xbox\.com|microsoft\.com/store|aka\.ms|rewards\.bing\.com/redeem|"
-    r"rewards\.bing\.com/refer|ms-settings:|play\.google|apps\.apple|"
-    r"copilot\.microsoft\.com",
+    r"rewards\.bing\.com/refer|ms-settings:|play\.google|apps\.apple",
     re.I,
 )
 
 
-def _is_news_tile(parent):
-    """True when a promotion is the check-in/news read tile, not a quiz."""
-    if not isinstance(parent, dict):
-        return False
-    ptype = str(parent.get("promotionType") or "").lower()
-    title = " ".join(
-        str(parent.get(k) or "") for k in ("name", "title", "description")
-    ).lower()
-    if "quiz" in ptype and "noticia" not in title and "news" not in title:
-        return False
-    if ptype in ("readarticle", "news", "readtoearn"):
-        return True
-    return any(
-        needle in title
-        for needle in (
-            "read to earn",
-            "read article",
-            "news article",
-            "noticias",
-            "noticia",
-        )
-    )
-
-
-def is_rewards_quest_url(url):
-    """True for Rewards punchcards /earn/quest pages the bot should try."""
-    u = (url or "").lower()
-    if "/earn/quest/" in u:
-        return True
-    if "punchcard" in u and ("rewards.bing.com" in u or u.startswith("/")):
-        return True
-    return False
-
-
 def skip_offer(title, url=""):
-    """True for promos the bot must not click (Store, Xbox, Copilot app).
-
-    Rewards punchcard URLs stay clickable even if the title mentions Copilot
-    or Store — those go through /earn/quest. Unclickable destinations still
-    belong in For you, not the success counter.
-    """
-    if is_rewards_quest_url(url):
-        return False
+    """True for promos the bot must not click or show as live quests."""
     blob = f"{title or ''} {url or ''}"
     return bool(SKIP_TITLE_RE.search(blob) or SKIP_URL_RE.search(blob))
 
 
-def punchcard_incomplete(card):
-    """True when a parse_userinfo punchcard still has unlocked work."""
-    if not isinstance(card, dict):
-        return False
-    if card.get("complete"):
-        return False
-    done, total = card.get("done"), card.get("total")
-    if isinstance(done, int) and isinstance(total, int) and total > 0 and done >= total:
-        return False
-    return True
-
-
 def fetch_userinfo(driver):
-    """GET getuserinfo in the logged-in Rewards session. None on failure.
-
-    Absolute URL so a Bing SERP can still hit the Rewards API.
-    """
+    """GET /api/getuserinfo in the logged-in Rewards session. None on failure."""
     if driver is None:
         return None
     try:
         driver.set_script_timeout(18)
         return driver.execute_async_script("""
             const done = arguments[0];
-            fetch('https://rewards.bing.com/api/getuserinfo?type=1', {
+            fetch('/api/getuserinfo?type=1', {
               credentials: 'include',
               headers: {Accept: 'application/json'}
             })
@@ -121,25 +64,13 @@ def _first_counter(counters, *names):
     return None
 
 
-def counter_complete(parsed, key):
-    """True when getuserinfo reports this counter as already full (e.g. 1/1)."""
-    pair = (parsed or {}).get(key)
-    if not isinstance(pair, (list, tuple)) or len(pair) != 2:
-        return False
-    try:
-        done, total = int(pair[0]), int(pair[1])
-    except (TypeError, ValueError):
-        return False
-    return total > 0 and done >= total
-
-
 def parse_userinfo(data):
     """
     Flatten getuserinfo into counters the rest of the app already uses.
 
     Returns:
-        dict with optional keys: available_points, pc, mobile, news, daily,
-        checkin, claim, punchcards (list of {url,title,done,total,complete}).
+        dict with optional keys: pc, mobile, news, daily, checkin, claim,
+        punchcards (list of {url,title,done,total,complete}).
     """
     out = {}
     if not isinstance(data, dict):
@@ -149,31 +80,6 @@ def parse_userinfo(data):
         return out
     status = dash.get("userStatus") or {}
     counters = status.get("counters") or {}
-
-    pts = status.get("availablePoints")
-    if pts is None:
-        pts = status.get("available_points")
-    if isinstance(pts, (int, float)) and not isinstance(pts, bool) and pts >= 0:
-        out["available_points"] = int(pts)
-
-    for blob in (status, dash):
-        for key in (
-            "unclaimedPoints",
-            "unclaimed_points",
-            "pendingPoints",
-            "readyToClaim",
-            "readyToClaimPoints",
-        ):
-            raw_claim = blob.get(key) if isinstance(blob, dict) else None
-            if (
-                isinstance(raw_claim, (int, float))
-                and not isinstance(raw_claim, bool)
-                and raw_claim >= 0
-            ):
-                out["claim"] = int(raw_claim)
-                break
-        if "claim" in out:
-            break
 
     pc = _first_counter(counters, "pcSearch", "pcsearch")
     if pc:
@@ -231,24 +137,12 @@ def parse_userinfo(data):
         # Keep absence distinct from 1/1 so the UI cannot inherit Search 1/1.
         out.setdefault("checkin", None)
 
-    for promo in list(dash.get("promotionalItems") or []) + list(
-        dash.get("morePromotions") or []
-    ):
-        if not isinstance(promo, dict):
-            continue
-        parent = promo.get("parentPromotion") or promo
-        if _is_news_tile(parent):
-            out["news_tile"] = True
-            break
-
     punchcards = []
     for card in dash.get("punchCards") or []:
         if not isinstance(card, dict):
             continue
         parent = card.get("parentPromotion") or card
         dest = parent.get("destination") or ""
-        if isinstance(dest, str) and dest.startswith("/"):
-            dest = "https://rewards.bing.com" + dest
         title = parent.get("title") or parent.get("name") or "Punchcard"
         child = card.get("childPromotions") or []
         total = len(child) if isinstance(child, list) else 0
@@ -296,8 +190,4 @@ def merge_live(page_live, api_live):
             merged[key] = value
     if api_live.get("checkin") is None and "checkin" not in (page_live or {}):
         merged.pop("checkin", None)
-    if isinstance(api_live.get("claim"), int):
-        merged["claim"] = api_live["claim"]
-    if api_live.get("punchcards"):
-        merged["punchcards"] = api_live["punchcards"]
     return merged

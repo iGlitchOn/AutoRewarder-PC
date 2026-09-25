@@ -11,50 +11,26 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 
 from .rewards_api import fetch_userinfo, parse_userinfo
-from ..search.locale import detect_system_locale
 from ..utils import wait_or_stop
 
-
-def news_unoffered_detail(news_frac, news_tile=False):
-    """Skip text when getuserinfo has no readArticle counter.
-
-    A check-in/news tile with no counter is not the More-activities quiz.
-    """
-    total = 0
-    if isinstance(news_frac, (list, tuple)) and len(news_frac) == 2:
-        try:
-            total = int(news_frac[1])
-        except (TypeError, ValueError):
-            total = 0
-    if total > 0:
-        return ""
-    if news_tile:
-        return "readArticle counter not on getuserinfo"
-    return "not offered (quiz is a More activity)"
-
-
-def _urls_for(market):
-    """Bing phone URLs for one setmkt. Falls back to detect_system_locale."""
-    market = market or detect_system_locale() or "en-US"
-    lang = market.split("-")[0]
-    app_home = f"https://www.bing.com/?form=APMCS1&setmkt={market}&setlang={lang}"
-    return {
-        "market": market,
-        "app_home": app_home,
-        "news_url": (
-            f"https://www.bing.com/news/search?q=news&form=APMCS1&setmkt={market}"
-        ),
-        "news_home": f"https://www.bing.com/news?form=APMCS1&setmkt={market}",
-        "msn_home": f"https://www.msn.com/?ocid=bingnews&setmkt={market}",
-        "read_to_earn": f"https://rewards.bing.com/earn?setmkt={market}",
-        "checkin_urls": (
-            f"https://rewards.bing.com/dashboard?setmkt={market}",
-            f"https://www.bing.com/rewards?form=APMCS1&setmkt={market}",
-            f"https://rewards.bing.com/?form=ML2N2V&setmkt={market}",
-            app_home,
-        ),
-    }
-
+# Bing *phone* client (Colombia). News and check-in live here, not on the PC dashboard.
+MARKET = "es-CO"
+APP_HOME = f"https://www.bing.com/?form=APMCS1&setmkt={MARKET}&setlang=es"
+NEWS_URL = (
+    f"https://www.bing.com/news/search?q=noticias+colombia&form=APMCS1&setmkt={MARKET}"
+)
+NEWS_HOME = f"https://www.bing.com/news?form=APMCS1&setmkt={MARKET}"
+MSN_HOME = f"https://www.msn.com/es-co?ocid=bingnews&setmkt={MARKET}"
+READ_TO_EARN = f"https://rewards.bing.com/earn?setmkt={MARKET}"
+CHECKIN_URLS = (
+    f"https://rewards.bing.com/dashboard?setmkt={MARKET}",
+    f"https://www.bing.com/rewards?form=APMCS1&setmkt={MARKET}",
+    f"https://rewards.bing.com/?form=ML2N2V&setmkt={MARKET}",
+    APP_HOME,
+)
+CHECKIN_URL = CHECKIN_URLS[0]
+EARN_URL = "https://rewards.bing.com/earn"
+DASHBOARD_URL = "https://rewards.bing.com/dashboard"
 
 _LIVE_APP_PROGRESS_JS = r"""
 try {
@@ -62,7 +38,7 @@ try {
   var out = {};
   var m = text.match(/(?:Check-in|Check in|Registro):\s*(\d+)\s*\/\s*(\d+)/i);
   if (m) out.checkin = [parseInt(m[1], 10), parseInt(m[2], 10)];
-  out.hasNews = /read to earn|news articles|read article|noticias|noticia|leer para ganar|art[ií]culos/i.test(text);
+  out.hasNews = /read to earn|news articles|read article/i.test(text);
   return out;
 } catch (e) { return {}; }
 """
@@ -121,16 +97,8 @@ try {
 class BingAppTasks:
     """Run check-in, news and app-streak as the Bing mobile app."""
 
-    def __init__(self, logger=None, market=None):
+    def __init__(self, logger=None):
         self.logger = logger
-        urls = _urls_for(market)
-        self.market = urls["market"]
-        self.app_home = urls["app_home"]
-        self.news_url = urls["news_url"]
-        self.news_home = urls["news_home"]
-        self.msn_home = urls["msn_home"]
-        self.read_to_earn = urls["read_to_earn"]
-        self.checkin_urls = urls["checkin_urls"]
 
     def _log(self, message):
         if self.logger:
@@ -171,10 +139,10 @@ class BingAppTasks:
 
     def read_live_app_progress(self, driver, stop_event=None):
         """Read check-in from the Bing *phone* client, not the PC earn page."""
-        out = {}
+        out = {"hasNews": True}
         if driver is None or self._stopped(stop_event):
             return out
-        for url in self.checkin_urls:
+        for url in CHECKIN_URLS:
             if self._stopped(stop_event):
                 break
             if not self._safe_get(driver, url):
@@ -186,29 +154,13 @@ class BingAppTasks:
             except Exception:
                 data = {}
             if isinstance(data, dict) and data:
-                # Page text is not a getuserinfo counter and must not mark done.
-                data = dict(data)
-                data.pop("checkin", None)
                 out.update(data)
+            if out.get("checkin"):
                 break
-        parsed = parse_userinfo(self._userinfo(driver))
-        api_checkin = parsed.get("checkin")
-        if isinstance(api_checkin, (list, tuple)) and len(api_checkin) == 2:
-            try:
-                done, total = int(api_checkin[0]), int(api_checkin[1])
-            except (TypeError, ValueError):
-                done, total = 0, 0
-            if total > 0:
-                out["checkin"] = [done, total]
-        news = parsed.get("news")
-        if isinstance(news, (list, tuple)) and len(news) == 2:
-            try:
-                done, total = int(news[0]), int(news[1])
-            except (TypeError, ValueError):
-                done, total = 0, 0
-            if total > 0:
-                out["news"] = [done, total]
-        out["news_tile"] = bool(parsed.get("news_tile") or out.get("hasNews"))
+        progress, max_pts = self._news_progress(driver)
+        if max_pts:
+            out["news"] = [progress, max_pts]
+        out["hasNews"] = True
         return out
 
     def _checkin_complete_from_api(self, driver):
@@ -234,7 +186,7 @@ class BingAppTasks:
         self._harden_driver(driver)
         self._log("Mobile check-in: opening Rewards in the Bing phone client...")
         dest = self._checkin_destination(driver)
-        urls = ((dest,) + self.checkin_urls) if dest else self.checkin_urls
+        urls = ((dest,) + CHECKIN_URLS) if dest else CHECKIN_URLS
         opened = False
         for url in urls:
             if self._stopped(stop_event):
@@ -360,20 +312,18 @@ class BingAppTasks:
             self._log(f"News already complete ({progress}/{max_pts} pts).")
             return True
         if max_pts == 0:
-            self._log("News: no readArticle counter on getuserinfo. Not marking done.")
+            self._log(
+                "News: this account has no read-to-earn counter. "
+                "The '¿Has visto las noticias?' card is a Bing quiz in More activities, "
+                "not article reading. Skipping article crawl."
+            )
             return False
         self._log(
-            f"News: Bing phone client ({self.market}), reading articles "
+            f"News: Bing phone client (Colombia), reading articles "
             f"({progress}/{max_pts})."
         )
         hrefs = []
-        for url in (
-            self.app_home,
-            self.news_home,
-            self.msn_home,
-            self.read_to_earn,
-            self.news_url,
-        ):
+        for url in (APP_HOME, NEWS_HOME, MSN_HOME, READ_TO_EARN, NEWS_URL):
             if self._stopped(stop_event):
                 return False
             if not self._safe_get(driver, url):
@@ -443,10 +393,10 @@ class BingAppTasks:
         self._harden_driver(driver, seconds=25)
         self._log("Bing app streak: mobile BingSapphire session...")
         for url in (
-            self.app_home,
-            self.checkin_urls[0],
-            f"https://www.bing.com/search?q=noticias+hoy&form=APMCS1&setmkt={self.market}",
-            self.news_url,
+            APP_HOME,
+            CHECKIN_URLS[0],
+            f"https://www.bing.com/search?q=noticias+hoy&form=APMCS1&setmkt={MARKET}",
+            NEWS_URL,
         ):
             if self._stopped(stop_event):
                 return False

@@ -22,7 +22,6 @@ from ..config import (
     account_dir,
     account_meta_path,
 )
-from .settings import _write_json
 
 
 def _new_account_id():
@@ -48,7 +47,6 @@ class AccountManager:
         """
         self._global = global_settings
         self._logger = logger
-        self._last_good = None
         os.makedirs(ACCOUNTS_DIR, exist_ok=True)
 
     def _log(self, msg):
@@ -58,88 +56,24 @@ class AccountManager:
 
     # ---- Index I/O ----------------------------------------------------
 
-    def _stash_corrupt_index(self):
-        src = ACCOUNTS_INDEX_PATH
-        broken = src + ".corrupt"
-        try:
-            if os.path.isfile(broken):
-                os.remove(broken)
-            os.replace(src, broken)
-        except OSError:
-            pass
-
-    def _load_index_file(self, path):
-        if not os.path.isfile(path):
-            return None
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            return data if isinstance(data, list) else None
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
-            return None
-
-    def _reconstruct_index(self):
-        """Rebuild [{id, label}] from accounts/* folders if the index file is gone."""
-        entries = []
-        try:
-            names = os.listdir(ACCOUNTS_DIR)
-        except OSError:
-            return entries
-        for name in names:
-            if not name or name.startswith("."):
-                continue
-            folder = os.path.join(ACCOUNTS_DIR, name)
-            if not os.path.isdir(folder):
-                continue
-            label = name[:8]
-            created = None
-            meta_path = os.path.join(folder, "meta.json")
-            if os.path.isfile(meta_path):
-                try:
-                    with open(meta_path, "r", encoding="utf-8") as handle:
-                        meta = json.load(handle)
-                    if isinstance(meta, dict):
-                        label = str(meta.get("label") or label)
-                        created = meta.get("created_at")
-                except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
-                    pass
-            entries.append({"id": name, "label": label, "created_at": created})
-        return entries
-
     def _read_index(self):
-        """Load the accounts index. Never treat a corrupt file as 'no accounts'."""
-        data = self._load_index_file(ACCOUNTS_INDEX_PATH)
-        if data is not None:
-            self._last_good = list(data)
-            return data
-        data = self._load_index_file(ACCOUNTS_INDEX_PATH + ".backup")
-        if data is not None:
-            self._last_good = list(data)
-            try:
-                self._write_index(data)
-            except OSError:
-                pass
-            return data
-        if os.path.exists(ACCOUNTS_INDEX_PATH):
-            self._stash_corrupt_index()
-            self._log("[WARNING] accounts.json was unreadable. Restoring from folders.")
-        rebuilt = self._reconstruct_index()
-        if rebuilt:
-            self._last_good = list(rebuilt)
-            try:
-                self._write_index(rebuilt)
-            except OSError:
-                pass
-            return rebuilt
-        if self._last_good:
-            return list(self._last_good)
-        return []
+        """Load the accounts index list from disk."""
+        if not os.path.exists(ACCOUNTS_INDEX_PATH):
+            return []
+        try:
+            with open(ACCOUNTS_INDEX_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            return []
 
     def _write_index(self, accounts):
         """Persist the accounts index list to disk atomically."""
         os.makedirs(APP_DIR, exist_ok=True)
-        _write_json(ACCOUNTS_INDEX_PATH, accounts)
-        self._last_good = list(accounts)
+        tmp = ACCOUNTS_INDEX_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(accounts, f, indent=4)
+        os.replace(tmp, ACCOUNTS_INDEX_PATH)
 
     # ---- Queries ------------------------------------------------------
 
@@ -360,7 +294,8 @@ class AccountManager:
 
             # Write per-account meta.json.
             meta_path = account_meta_path(aid)
-            _write_json(meta_path, {"first_setup_done": legacy_first_setup_done})
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump({"first_setup_done": legacy_first_setup_done}, f, indent=4)
 
             # Strip the legacy key from global settings and persist
             # (preserve hide_browser which still lives at the global layer).

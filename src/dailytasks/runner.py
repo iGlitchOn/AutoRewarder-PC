@@ -10,7 +10,6 @@ module just decides which sections exist, classifies their cards, and loops.
 import json
 import os
 import random
-import shutil
 import time
 from datetime import date
 
@@ -21,7 +20,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from .card import RewardsCard
 from .card_js import CardStatus
-from .rewards_api import punchcard_incomplete
 
 # The Rewards dashboard groups click-through tasks into two sections we can
 # automate: the Daily Set (3 cards, refreshed each day) and "More Activities"
@@ -58,12 +56,7 @@ _IS_LEGACY_JS = (
     " || document.querySelector('mee-rewards-more-activities-card-item')"
     " || document.querySelector('mee-rewards-more-activities-card'));"
 )
-_IS_NEW_JS = (
-    "return !!(window.__next_f || window.__NEXT_DATA__"
-    " || document.getElementById('dailyset')"
-    " || document.getElementById('moreactivities')"
-    " || document.querySelector('a[href*=\"/earn/quest/\"]'));"
-)
+_IS_NEW_JS = "return !!(window.__next_f || document.getElementById('dailyset'));"
 
 
 class DailySet:
@@ -111,63 +104,30 @@ class DailySet:
             "attempted": 0,
             "earn": 0,
             "quests": 0,
-            "quests_left": 0,
-            "quests_error": False,
-            "claim_left": 0,
         }
 
     def _log(self, message):
         if self.logger:
             self.logger(message)
 
-    def _load_status_file(self, path):
-        if not os.path.isfile(path):
-            return None
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            return data if isinstance(data, dict) else None
-        except Exception:
-            return None
-
     def _read_status(self):
         """Return status.json as a dict, or {} if missing/unreadable."""
-        data = self._load_status_file(self.status_file)
-        if data is not None:
-            return data
-        backup = self._load_status_file(self.status_file + ".backup")
-        if backup is not None:
-            try:
-                if os.path.isfile(self.status_file):
-                    broken = self.status_file + ".corrupt"
-                    if os.path.isfile(broken):
-                        os.remove(broken)
-                    os.replace(self.status_file, broken)
-                self._write_status(backup)
-            except OSError:
-                pass
-            return backup
-        if os.path.exists(self.status_file):
+        if not os.path.exists(self.status_file):
+            return {}
+        try:
+            with open(self.status_file, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            return data if isinstance(data, dict) else {}
+        except Exception:
             self._log(f"[ERROR] Failed to read status file: {self.status_file}")
-        return {}
+            return {}
 
     def _write_status(self, data):
         os.makedirs(os.path.dirname(self.status_file), exist_ok=True)
         temp_file = self.status_file + ".tmp"
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-            except OSError:
-                pass
         with open(temp_file, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4)
-            file.flush()
-            os.fsync(file.fileno())
         os.replace(temp_file, self.status_file)
-        try:
-            shutil.copy2(self.status_file, self.status_file + ".backup")
-        except OSError:
-            pass
 
     def _status_is_today(self, key):
         return self._read_status().get(key) == str(date.today())
@@ -204,8 +164,6 @@ class DailySet:
                 pending_bits.append("daily set")
             if isinstance(live.get("claim"), int) and live.get("claim") > 0:
                 pending_bits.append("claim")
-            if any(punchcard_incomplete(p) for p in (live.get("punchcards") or [])):
-                pending_bits.append("punchcards")
             if _frac_pending(live.get("edge")):
                 pending_bits.append("edge")
             if _frac_pending(live.get("checkin")):
@@ -252,71 +210,28 @@ class DailySet:
 
     # -- Status persistence (daily set) ----------------------------------------------------
 
-    def day_still_open(self, live=None, totals=None):
-        """True when live claim, daily cards, or punchcards are still unfinished."""
-        data = self._read_status()
-        if live is None:
-            live = data.get("live") if isinstance(data.get("live"), dict) else {}
-        live = live if isinstance(live, dict) else {}
-        totals = totals if isinstance(totals, dict) else {}
-        today = str(date.today())
-        if live.get("date") and live.get("date") != today:
-            live = {}
-        if isinstance(live.get("claim"), int) and live.get("claim") > 0:
-            return True
-        if int(totals.get("claim_left") or 0) > 0:
-            return True
-        daily = live.get("daily")
-        if (
-            isinstance(daily, (list, tuple))
-            and len(daily) == 2
-            and int(daily[1]) > 0
-            and int(daily[0]) < int(daily[1])
-        ):
-            return True
-        if int(totals.get("quests_left") or 0) > 0 or totals.get("quests_error"):
-            return True
-        if any(punchcard_incomplete(p) for p in (live.get("punchcards") or [])):
-            return True
-        return False
-
     def should_perform_daily_set(self):
         """
-        Check if Daily Set / claim / punchcards still need a run today.
+        Check if the Daily Set has already been completed today.
 
-        Live snapshot wins over last_daily_set_date, which older builds lied about.
+        Returns:
+            bool: True if the Daily Set should be performed, False if it has
+                  already been completed today.
         """
         today = str(date.today())
         data = self._read_status()
-        live = data.get("live") if isinstance(data.get("live"), dict) else {}
-        if live.get("date") == today:
-            if self.day_still_open(live, None):
-                return True
-            daily = live.get("daily")
-            if (
-                isinstance(daily, (list, tuple))
-                and len(daily) == 2
-                and int(daily[1]) > 0
-                and int(daily[0]) >= int(daily[1])
-            ):
-                return False
         if data.get("last_daily_set_date") != today:
             return True
+        # A previous run marked the day done but left incomplete cards.
         return int(data.get("daily_remaining") or 0) > 0
 
     def mark_as_completed(self):
-        """Mark the daily set as completed for today, unless live work remains."""
-        data = self._read_status()
-        if self.day_still_open(
-            data.get("live") if isinstance(data.get("live"), dict) else {},
-            None,
-        ):
-            return False
+        """Mark the daily set as completed for today."""
         today = str(date.today())
+        data = self._read_status()
         data["last_daily_set_date"] = today
         data["daily_remaining"] = 0
         self._write_status(data)
-        return True
 
     def save_daily_progress(self, totals):
         """Persist remaining daily-set cards after a pass so the next run can resume."""
@@ -349,7 +264,6 @@ class DailySet:
             "claim",
             "news",
             "resetHours",
-            "punchcards",
         ):
             if key not in progress:
                 continue
@@ -710,9 +624,6 @@ class DailySet:
             "attempted": 0,
             "earn": 0,
             "quests": 0,
-            "quests_left": 0,
-            "quests_error": False,
-            "claim_left": 0,
         }
 
         variant = variant or self.dashboard_variant or "auto"
@@ -802,8 +713,8 @@ class DailySet:
         Probes the root (legacy Angular dashboard) first; if neither signature
         appears there, retries at /dashboard (the new Next.js app, which the root
         may not redirect to for a headless session). Returns "legacy" for the
-        mee-rewards-* DOM or "new" for the Next.js app. 2026 accounts are Next.js;
-        defaulting to legacy when the SPA did not paint skipped punchcards.
+        mee-rewards-* DOM or "new" for the Next.js app, defaulting to "legacy" if
+        neither is detected (the legacy path fails loudly — the safer default).
         """
 
         def _ready(d):
@@ -834,11 +745,7 @@ class DailySet:
             except Exception:
                 pass
 
-        self._log(
-            "[WARNING] Dashboard variant unclear (no mee-rewards-*, no "
-            "#dailyset/__next_f). Trying Next.js path."
-        )
-        return "new"
+        return "legacy"
 
     def _perform_legacy(self, driver, human, stop_event=None):
         """
@@ -867,9 +774,6 @@ class DailySet:
             "attempted": 0,
             "earn": 0,
             "quests": 0,
-            "quests_left": 0,
-            "quests_error": False,
-            "claim_left": 0,
         }
 
         try:

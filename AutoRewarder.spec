@@ -6,14 +6,7 @@ a = Analysis(
     ['AutoRewarder.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('gui', 'gui'),
-        ('assets/queries.json', 'assets'),
-        ('assets/icon.ico', 'assets'),
-        ('assets/visual_search_assets', 'assets/visual_search_assets'),
-        ('LICENSE', '.'),
-        ('NOTICE', '.'),
-    ] + collect_data_files('nlpaug'),
+    datas=[('gui', 'gui'), ('assets', 'assets')] + collect_data_files('nlpaug'),
     hiddenimports=[
         'selenium.webdriver.edge.webdriver',
         'pystray',
@@ -24,7 +17,6 @@ a = Analysis(
         'src.tunnel',
         'src.qr_png',
         'src.apk_update',
-        'src.emulator.virtual_desktop',
         'qrcode',
     ],
     hookspath=[],

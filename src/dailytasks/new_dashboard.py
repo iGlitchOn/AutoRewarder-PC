@@ -25,10 +25,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from .interactive import complete_if_interactive
 from .rewards_api import (
     fetch_userinfo,
-    is_rewards_quest_url,
     merge_live,
     parse_userinfo,
-    punchcard_incomplete,
     skip_offer,
 )
 from ..utils import wait_or_stop
@@ -37,7 +35,10 @@ DASHBOARD_URL = "https://rewards.bing.com/dashboard"
 EARN_URL = "https://rewards.bing.com/earn"
 FLYOUT_URL = "https://www.bing.com/rewards/panelflyout?style=chrome"
 
-# Punchcards come from getuserinfo (punchCards), not a hardcoded FY/month slug.
+# Always visit these punchcards even if the earn-page card looks complete.
+KNOWN_PUNCHCARD_URLS = (
+    "https://rewards.bing.com/earn/quest/ENWW_pcparent_FY27_BingMonthlyPC_Sep_punchcard",
+)
 
 # Concatenate every streamed RSC chunk (`window.__next_f` is a list of
 # `[1, "<chunk>"]` entries) and pull out each `dailySetItems` array, returning
@@ -384,28 +385,6 @@ try {
   var m;
   m = text.match(/(?:Ready to claim|Listo(?:s)? para reclamar)\s+(\d{1,6})/i);
   if (m) out.claim = parseInt(m[1], 10);
-  if (out.claim == null) {
-    try {
-      var raw = window.__next_f || [];
-      var parts = [];
-      for (var n = 0; n < raw.length; n++) {
-        var e = raw[n];
-        if (Array.isArray(e)) { if (typeof e[1] === 'string') parts.push(e[1]); }
-        else if (typeof e === 'string') { parts.push(e); }
-      }
-      var blob = parts.join('');
-      var keys = ['unclaimedPoints','readyToClaimPoints','readyToClaim','pendingPoints'];
-      for (var i = 0; i < keys.length; i++) {
-        var km = blob.match(new RegExp('"' + keys[i] + '"\\\\s*:\\\\s*(\\\\d+)'));
-        if (km) { out.claim = parseInt(km[1], 10); break; }
-      }
-      if (out.claim == null) {
-        var tm = blob.match(/Ready to claim[^0-9]{0,48}(\\d{1,6})/i)
-              || blob.match(/Listo(?:s)? para reclamar[^0-9]{0,48}(\\d{1,6})/i);
-        if (tm) out.claim = parseInt(tm[1], 10);
-      }
-    } catch (err) {}
-  }
   m = text.match(/(?:Activity|Actividad):\s*(\d+)\s*\/\s*(\d+)/i);
   if (m) out.daily = [parseInt(m[1], 10), parseInt(m[2], 10)];
   m = text.match(/(?:Minutes|Minutos):\s*(\d+)\s*\/\s*(\d+)/i);
@@ -425,7 +404,7 @@ try {
 _FIND_CLAIM_CTA_JS = r"""
 try {
   var nodes = document.querySelectorAll(
-    'button, [role="button"], [data-react-aria-pressable], .cursor-pointer, a'
+    'button, [role="button"], [data-react-aria-pressable], .cursor-pointer'
   );
   var claimBtn = null;
   var tile = null;
@@ -434,28 +413,17 @@ try {
     if (!el.getClientRects().length) continue;
     var t = (el.innerText || '').replace(/\s+/g, ' ').trim();
     if (!t) continue;
-    if (/redeem|canjear|donat/i.test(t) && !/ready to claim|listo/i.test(t)) continue;
     if (/ready to claim|listo(?:s)? para reclamar/i.test(t)) tile = el;
     var exact = t.toLowerCase();
+    if (/redeem|canjear|donat/i.test(t)) continue;
     if (
       exact === 'claim' || exact === 'reclamar' || exact === 'reclama' ||
-      /^claim\b/.test(exact) || /^reclamar\b/.test(exact) ||
-      /^claim\s+now\b/.test(exact) || /^reclamar\s+ahora\b/.test(exact)
+      /^claim\b/.test(exact) || /^reclamar\b/.test(exact)
     ) {
       claimBtn = el;
     }
   }
-  if (claimBtn || tile) return claimBtn || tile;
-  var danger = document.querySelector(
-    '[class*="statusDanger"], [class*="status-danger"]'
-  );
-  if (danger) {
-    var press = danger.closest(
-      'button, [role="button"], [data-react-aria-pressable], .cursor-pointer'
-    );
-    if (press && press.tagName && press.tagName.toLowerCase() !== 'a') return press;
-  }
-  return null;
+  return claimBtn || tile;
 } catch (e) { return null; }
 """
 
@@ -482,9 +450,6 @@ class NewDashboardDailySet:
             "attempted": 0,
             "earn": 0,
             "quests": 0,
-            "quests_left": 0,
-            "quests_error": False,
-            "claim_left": 0,
         }
         # Entry URL of the "visual search streak" mission, read off the
         # dashboard during `perform` so the visual search can start from the
@@ -498,31 +463,10 @@ class NewDashboardDailySet:
         self.live_progress = {}
         self.edge_minutes_remaining = 0
         self.for_you_tasks = []
-        self._for_you_extra = []
 
     def _log(self, message):
         if self.logger:
             self.logger(message)
-
-    def _queue_for_you(self, task_id, title, detail, url, kind="quest"):
-        """Keep a leftover Rewards item for the For you tab (never a success)."""
-        if not url or not str(url).startswith("http"):
-            url = DASHBOARD_URL
-        key = str(task_id or url or title or "").split("?")[0]
-        if not key:
-            return
-        for row in self._for_you_extra:
-            if (row.get("id") or "") == key[:80]:
-                return
-        self._for_you_extra.append(
-            {
-                "id": key[:80],
-                "title": (title or "Rewards task")[:90],
-                "detail": (detail or "")[:160],
-                "url": url,
-                "kind": kind,
-            }
-        )
 
     @staticmethod
     def _close_tab(driver):
@@ -993,11 +937,7 @@ class NewDashboardDailySet:
         skip with a reason. Order: Daily Set, Ready to claim, earn-page,
         punchcards, Edge minutes. Visual Search / mobile app are the caller.
         """
-        return self._perform_inner(driver, human, stop_event)
-
-    def _perform_inner(self, driver, human, stop_event=None):
         self.needs_edge_browse = False
-        self._for_you_extra = []
         try:
             driver.set_page_load_timeout(30)
         except Exception:
@@ -1018,9 +958,6 @@ class NewDashboardDailySet:
                 self._log(
                     f"[1/8] Daily Set — live {daily[0]}/{daily[1]}, skipping card clicks."
                 )
-                self.last_totals["already"] = int(daily[0])
-                self.last_totals["final"] = int(daily[0])
-                self.last_totals["total"] = int(daily[1])
                 daily_ok = True
             else:
                 self._log(
@@ -1087,10 +1024,6 @@ class NewDashboardDailySet:
             if not (stop_event is not None and stop_event.is_set()):
                 self._log(f"[WARNING] Could not read Edge minutes: {e}")
         try:
-            self.read_live_progress(driver, navigate=False)
-        except Exception:
-            pass
-        try:
             self.for_you_tasks = self.collect_for_you(driver)
             self._log(f"For you: {len(self.for_you_tasks)} open quest(s) saved.")
         except Exception as e:
@@ -1098,11 +1031,13 @@ class NewDashboardDailySet:
         return daily_ok
 
     def collect_for_you(self, driver):
-        """Incomplete punchcards and leftover promos. skip_offer items stay here."""
+        """Incomplete punchcards still open on /earn. No static catalog, no ghosts."""
         items = []
         seen = set()
 
         def _add(task_id, title, detail, url, kind="quest"):
+            if skip_offer(title, url):
+                return
             key = (task_id or url or title or "").split("?")[0]
             if not key or key in seen:
                 return
@@ -1119,37 +1054,22 @@ class NewDashboardDailySet:
                 }
             )
 
-        for row in self._for_you_extra:
-            _add(
-                row.get("id"),
-                row.get("title"),
-                row.get("detail"),
-                row.get("url"),
-                row.get("kind") or "quest",
-            )
-
-        claim = (self.live_progress or {}).get("claim")
-        if isinstance(claim, int) and claim > 0:
-            _add(
-                "claim",
-                "Ready to claim",
-                f"{claim} points still pending",
-                DASHBOARD_URL,
-                "claim",
-            )
-
         api = parse_userinfo(fetch_userinfo(driver))
         for q in api.get("punchcards") or []:
-            if not punchcard_incomplete(q):
+            if q.get("complete"):
+                continue
+            done, total = q.get("done"), q.get("total")
+            if (
+                isinstance(done, int)
+                and isinstance(total, int)
+                and total > 0
+                and done >= total
+            ):
                 continue
             url = q.get("url") or ""
-            if not is_rewards_quest_url(url) and "/earn/quest/" not in url:
-                if url.startswith("http"):
-                    title = q.get("title") or "Punchcard"
-                    _add(url, title, "needs a manual click", url, "manual")
+            if "/earn/quest/" not in url and "punchcard" not in url.lower():
                 continue
             title = q.get("title") or "Punchcard"
-            done, total = q.get("done"), q.get("total")
             prog = (
                 f"{done}/{total} tasks"
                 if isinstance(done, int) and isinstance(total, int)
@@ -1170,6 +1090,8 @@ class NewDashboardDailySet:
                 continue
             url = q.get("url") or ""
             title = q.get("title") or "Punchcard"
+            if skip_offer(title, url):
+                continue
             done, total = q.get("done"), q.get("total")
             if (
                 isinstance(done, int)
@@ -1186,20 +1108,6 @@ class NewDashboardDailySet:
                 else "open"
             )
             _add(url, title, prog, url, "quest")
-        try:
-            extra = driver.execute_script(_FOR_YOU_EXTRA_JS) or []
-        except Exception:
-            extra = []
-        for q in extra if isinstance(extra, list) else []:
-            if not isinstance(q, dict):
-                continue
-            _add(
-                q.get("url"),
-                q.get("title"),
-                q.get("detail"),
-                q.get("url"),
-                q.get("kind") or "manual",
-            )
         return items
 
     def _log_live_snapshot(self, progress):
@@ -1268,8 +1176,8 @@ class NewDashboardDailySet:
         try:
             if navigate:
                 self._safe_get(driver, DASHBOARD_URL)
-                self._wait_ready(driver, timeout=15)
-                time.sleep(random.uniform(1.5, 2.5))
+                self._wait_ready(driver, timeout=8)
+                time.sleep(0.6)
             data = driver.execute_script(_VS_STREAK_PROGRESS_JS)
         except Exception:
             return None
@@ -1339,35 +1247,23 @@ class NewDashboardDailySet:
         except Exception:
             return None
 
-    def _claim_still_open(self, amount):
-        """Queue For you and log ERROR while Rewards still shows pending points."""
-        shown = amount if isinstance(amount, int) and amount > 0 else amount or "?"
-        self._log(f"[ERROR] claim {shown} still pending")
-        self.last_totals["claim_left"] = (
-            int(amount) if isinstance(amount, int) and amount > 0 else 1
-        )
-        self._queue_for_you(
-            "claim",
-            "Ready to claim",
-            f"{shown} points still pending",
-            DASHBOARD_URL,
-            "claim",
-        )
-
     def _run_claim(self, driver, human, stop_event=None):
         """
         Claim pending points from the dashboard "ready to claim" tile.
 
-        Skip only when getuserinfo or live text reports 0 pending. No CTA means
-        an ERROR plus a For you row, never a silent skip.
+        New-dashboard points must be claimed before they count toward the balance
+        (and they expire ~1 month after being earned). The tile shows a pending
+        count with a danger dot; clicking it opens a flyout whose primary button
+        claims them. Best-effort and language-independent — matched by the
+        coins-icon asset, the danger-status token and the brand-button token,
+        never by localized labels.
         """
         self._log("Checking for claimable points (new dashboard)")
         if not self._safe_get(driver, DASHBOARD_URL):
-            self._log("[ERROR] Could not open the dashboard to claim.")
-            self._claim_still_open((self.live_progress or {}).get("claim"))
+            self._log("[WARNING] Could not open the dashboard to claim.")
             return
-        self._wait_ready(driver, timeout=15)
-        time.sleep(random.uniform(1.5, 2.5))
+        self._wait_ready(driver, timeout=8)
+        time.sleep(0.6)
 
         live = self.read_live_progress(driver, navigate=False)
         pending_live = live.get("claim")
@@ -1381,28 +1277,13 @@ class NewDashboardDailySet:
             except Exception:
                 card = None
 
-        known_zero = isinstance(pending_live, int) and pending_live == 0
-        known_pending = (isinstance(pending_live, int) and pending_live > 0) or (
-            isinstance(pending, str) and pending.isdigit() and int(pending) > 0
-        )
-
-        if card is None and known_zero:
-            self._log("[2/8] Ready to claim — 0 pending, skipping.")
-            self.last_totals["claim_left"] = 0
-            return
-        if card is None and not known_pending and pending_live is None:
-            self._log(
-                "[ERROR] claim unread — getuserinfo/page did not report 0 pending."
-            )
-            self._claim_still_open(None)
+        if card is None and not pending_live:
+            self._log("[2/8] Ready to claim — nothing pending, skipping.")
             return
         if card is None:
             self._log(
                 f"[2/8] Ready to claim — {pending or pending_live} shown but "
                 "no Claim control found."
-            )
-            self._claim_still_open(
-                pending_live if isinstance(pending_live, int) else pending
             )
             return
 
@@ -1419,13 +1300,7 @@ class NewDashboardDailySet:
             if stop_event is not None and stop_event.is_set():
                 return
             self._log(f"[WARNING] Could not open the claim flyout: {e}")
-            try:
-                driver.execute_script("arguments[0].click();", card)
-            except Exception:
-                self._claim_still_open(
-                    pending_live if isinstance(pending_live, int) else pending
-                )
-                return
+            return
 
         # Newer dashboards put Claim on the tile itself (no flyout). Try that
         # first; fall back to the flyout brand control.
@@ -1448,11 +1323,8 @@ class NewDashboardDailySet:
             except Exception:
                 diag = "?"
             self._log(
-                "[ERROR] Claim button not found after opening the claim tile "
+                "[WARNING] Claim button not found after opening the claim tile "
                 f"(brand controls/panels on page: {diag})."
-            )
-            self._claim_still_open(
-                pending_live if isinstance(pending_live, int) else pending
             )
             return
         try:
@@ -1463,10 +1335,7 @@ class NewDashboardDailySet:
             try:
                 driver.execute_script("arguments[0].click();", btn)
             except Exception:
-                self._log(f"[ERROR] Could not click the claim button: {e}")
-                self._claim_still_open(
-                    pending_live if isinstance(pending_live, int) else pending
-                )
+                self._log(f"[WARNING] Could not click the claim button: {e}")
                 return
         if wait_or_stop(random.uniform(2.0, 3.5), stop_event):
             return
@@ -1475,7 +1344,6 @@ class NewDashboardDailySet:
         left = after.get("claim")
         if isinstance(left, int) and left == 0:
             self._log("Claim verified: 0 pending.")
-            self.last_totals["claim_left"] = 0
         elif isinstance(left, int):
             self._log(
                 f"[WARNING] Claim still shows {left} pending after click. Retrying."
@@ -1491,14 +1359,10 @@ class NewDashboardDailySet:
                 pass
             if isinstance(left, int) and left == 0:
                 self._log("Claim verified on retry: 0 pending.")
-                self.last_totals["claim_left"] = 0
             else:
-                self._claim_still_open(left)
+                self._log(f"[WARNING] Claim not confirmed (still {left}).")
         else:
-            self._log("[ERROR] Claim clicked — pending amount could not be re-read.")
-            self._claim_still_open(
-                pending_live if isinstance(pending_live, int) else None
-            )
+            self._log("Clicked claim — pending amount could not be re-read.")
 
     def _flyout_activities(self, driver):
         """Read leftover +N quizzes/puzzles from the Bing Rewards flyout."""
@@ -1557,8 +1421,8 @@ class NewDashboardDailySet:
             self._log("[WARNING] Could not open the earn page.")
             return
 
-        self._wait_for(driver, "#moreactivities", timeout=15)
-        time.sleep(random.uniform(1.5, 2.5))
+        self._wait_for(driver, "#moreactivities", timeout=8)
+        time.sleep(0.6)
         self._expand_section(driver, "moreactivities")
         time.sleep(random.uniform(0.5, 1.0))
 
@@ -1594,7 +1458,6 @@ class NewDashboardDailySet:
                 continue
             if skip_offer(title, dest):
                 self._log(f"Skipping non-automatable activity: {title}")
-                self._queue_for_you(dest, title, "not automatable", dest, "manual")
                 continue
             self._log(f"Opening activity: {title} (+{item.get('points')})")
             anchor = self._locate_anchor(driver, dest, section_id="moreactivities")
@@ -1641,34 +1504,18 @@ class NewDashboardDailySet:
         """
         Complete the currently-actionable tasks inside /earn "quest" punchcards.
 
-        Discover from getuserinfo punchCards AND the earn-page DOM. last_totals
-        ["quests"] is the verified API done-count increase, not click count.
-        A missing task table is an ERROR + For you row, not "0 opened".
+        A quest is a multi-task card that links to its own /earn/quest/<id> page;
+        each task is a Bing-search link that must be really clicked to credit
+        (like a daily-set card). Punchcard tasks are time-gated — typically only
+        one unlocks per ~24h — so a run completes only what's unlocked right now;
+        locked tasks carry aria-disabled / data-disabled and are skipped. Full
+        completion of a quest therefore takes several daily runs.
         """
         self._log("Checking 'earn-page' quests (new dashboard)")
-        api = parse_userinfo(fetch_userinfo(driver))
-        api_cards = {
-            (c.get("url") or "").split("?")[0].rstrip("/"): c
-            for c in api.get("punchcards") or []
-            if isinstance(c, dict)
-        }
-        api_open = [c for c in api_cards.values() if punchcard_incomplete(c)]
-
         if not self._safe_get(driver, EARN_URL):
-            self._log("[ERROR] Could not open the earn page for quests.")
-            self.last_totals["quests_error"] = True
-            self.last_totals["quests_left"] = len(api_open)
-            for card in api_open:
-                url = card.get("url") or ""
-                if url.startswith("http"):
-                    self._queue_for_you(
-                        url,
-                        card.get("title") or "Punchcard",
-                        "earn page did not load",
-                        url,
-                    )
+            self._log("[WARNING] Could not open the earn page for quests.")
             return
-        self._wait_ready(driver, timeout=15)
+        self._wait_ready(driver, timeout=8)
 
         # Quest cards sit in a collapsible panel and stream in progressively.
         # Expand every collapsed section, then poll discovery until the set of
@@ -1681,12 +1528,19 @@ class NewDashboardDailySet:
                 current = driver.execute_script(_QUESTS_JS) or []
             except Exception as e:
                 self._log(f"[WARNING] Could not read quests: {e}")
-                current = []
+                return
             if isinstance(current, list) and len(current) > len(quests):
                 quests = current
             elif quests:
                 break
+        if not quests:
+            self._log("Quests: none found.")
+            return
 
+        # Keep only quests that award points and aren't finished. Points-earning
+        # quests carry a "+N" badge on their card; promo quests (partner offers,
+        # e.g. Spotify/MasterClass) show none and are skipped, as are quests
+        # already complete (progress N/N).
         pending = []
         for q in quests:
             if not isinstance(q, dict):
@@ -1697,18 +1551,15 @@ class NewDashboardDailySet:
             pts = q.get("points")
             url_l = url.lower()
             if skip_offer(q.get("title") or "", url):
-                self._queue_for_you(
-                    url,
-                    q.get("title") or "Punchcard",
-                    "not automatable — do it in the browser",
-                    url,
-                    "manual",
-                )
                 continue
+            # Monthly punchcards (e.g. ENWW_pcparent_..._punchcard) must run
+            # even when the "+N" badge failed to parse.
             if (not isinstance(pts, int) or pts <= 0) and "punchcard" not in url_l:
                 continue
             d, t = q.get("done"), q.get("total")
             is_punchcard = "punchcard" in url_l
+            # Never skip a punchcard just because the earn-page badge looks
+            # full — the quest page is the source of truth.
             if (
                 not is_punchcard
                 and isinstance(d, int)
@@ -1720,65 +1571,33 @@ class NewDashboardDailySet:
             pending.append(q)
 
         seen_urls = {(q.get("url") or "").split("?")[0].rstrip("/") for q in pending}
-        for key, card in api_cards.items():
-            if not key or not punchcard_incomplete(card):
+        api = parse_userinfo(fetch_userinfo(driver))
+        api_cards = {
+            (c.get("url") or "").split("?")[0].rstrip("/"): c
+            for c in api.get("punchcards") or []
+        }
+        for known in KNOWN_PUNCHCARD_URLS:
+            key = known.split("?")[0].rstrip("/")
+            card = api_cards.get(key)
+            if card and card.get("complete"):
                 continue
-            dest = card.get("url") or key
-            if not is_rewards_quest_url(dest) and "/earn/quest/" not in dest:
-                if dest.startswith("http"):
-                    self._queue_for_you(
-                        dest,
-                        card.get("title") or "Punchcard",
-                        "needs a manual click",
-                        dest,
-                        "manual",
-                    )
-                continue
-            if key in seen_urls:
-                continue
-            pending.append(
-                {
-                    "url": dest,
-                    "title": card.get("title") or "Punchcard",
-                    "points": card.get("points") or 0,
-                    "done": card.get("done"),
-                    "total": card.get("total"),
-                }
-            )
-            seen_urls.add(key)
-            self._log(f"Quests: adding punchcard from API {key}")
+            if key not in seen_urls:
+                pending.append(
+                    {
+                        "url": known,
+                        "title": (card or {}).get("title") or "Monthly PC punchcard",
+                        "points": 50,
+                    }
+                )
+                self._log(f"Quests: adding punchcard {known}")
 
         if not pending:
-            if api_open:
-                self._log(
-                    f"[ERROR] Quests: {len(api_open)} punchcard(s) in getuserinfo "
-                    "but the earn table did not hydrate."
-                )
-                self.last_totals["quests_error"] = True
-                self.last_totals["quests_left"] = len(api_open)
-                for card in api_open:
-                    url = card.get("url") or ""
-                    if url.startswith("http"):
-                        self._queue_for_you(
-                            url,
-                            card.get("title") or "Punchcard",
-                            "task list did not render",
-                            url,
-                        )
-            else:
-                self._log("Quests: no points-earning quest to do.")
-                self.last_totals["quests_left"] = 0
+            self._log("Quests: no points-earning quest to do.")
             return
 
         self._log(f"Quests: {len(pending)} points-earning quest(s) to check.")
-        before_done = {
-            (c.get("url") or "").split("?")[0].rstrip("/"): int(c.get("done") or 0)
-            for c in api.get("punchcards") or []
-            if isinstance(c, dict)
-        }
         main_tab = driver.current_window_handle
         opened = 0
-        hydrate_fail = 0
         for q in pending:
             if stop_event is not None and stop_event.is_set():
                 self._log("Stop requested — halting quests.")
@@ -1790,41 +1609,30 @@ class NewDashboardDailySet:
                 driver.get(url)
                 self._wait_ready(driver)
             except Exception as e:
-                self._log(f"[ERROR] Could not open quest '{title}': {e}")
-                self._queue_for_you(url, title, "quest page failed to open", url)
-                hydrate_fail += 1
+                self._log(f"[WARNING] Could not open quest '{title}': {e}")
                 continue
 
+            # The task list streams in after hydration; _wait_ready only gates on
+            # the Next.js payload existing. Wait for a task heading to render
+            # before reading, so a not-yet-loaded list isn't mistaken for
+            # "nothing to do" (which would skip an unlocked task).
             if not self._wait_for(
                 driver, '[class*="rewardsTableAltBg"] h3', timeout=15
             ):
-                self._log(
-                    f"[ERROR] Quest '{title}': task list did not render "
-                    "(hide_browser / SPA). Leaving in For you."
-                )
-                self._queue_for_you(url, title, "task list did not render", url)
-                hydrate_fail += 1
+                self._log(f"Quest '{title}': task list did not render — skipping.")
                 continue
             time.sleep(random.uniform(1.0, 1.8))
 
             try:
                 tasks = driver.execute_script(_QUEST_TASKS_JS)
             except Exception as e:
-                self._log(f"[ERROR] Could not read tasks for quest '{title}': {e}")
-                self._queue_for_you(url, title, "task list unread", url)
-                hydrate_fail += 1
+                self._log(f"[WARNING] Could not read tasks for quest '{title}': {e}")
                 continue
             if not isinstance(tasks, list) or not tasks:
                 self._log(
                     f"Quest '{title}': no actionable task right now "
                     "(locked or complete)."
                 )
-                if punchcard_incomplete(
-                    api_cards.get(url.split("?")[0].rstrip("/"), q)
-                ):
-                    self._queue_for_you(
-                        url, title, "locked or no enabled task link", url
-                    )
                 continue
 
             self._log(f"Quest '{title}': {len(tasks)} actionable task(s).")
@@ -1837,7 +1645,6 @@ class NewDashboardDailySet:
                     continue
                 if skip_offer(ttitle, dest):
                     self._log(f"Skipping non-automatable quest task: {ttitle}")
-                    self._queue_for_you(dest, ttitle, "not automatable", dest, "manual")
                     continue
                 self._log(f"Opening quest task: {ttitle}")
                 low = (ttitle + " " + dest).lower()
@@ -1858,6 +1665,8 @@ class NewDashboardDailySet:
                     driver, human, anchor, main_tab, stop_event, return_url=url
                 ):
                     opened += 1
+                    # Re-open the quest page so the next task's element can be
+                    # relocated fresh (the DOM re-renders after each click).
                     try:
                         driver.get(url)
                         self._wait_ready(driver)
@@ -1865,36 +1674,14 @@ class NewDashboardDailySet:
                     except Exception:
                         pass
 
-        after = parse_userinfo(fetch_userinfo(driver))
-        verified = 0
-        left = 0
-        for card in after.get("punchcards") or []:
-            if not isinstance(card, dict):
-                continue
-            key = (card.get("url") or "").split("?")[0].rstrip("/")
-            now = int(card.get("done") or 0)
-            prev = before_done.get(key, 0)
-            if now > prev:
-                verified += now - prev
-            if punchcard_incomplete(card):
-                left += 1
-                dest = card.get("url") or key
-                if dest.startswith("http"):
-                    self._queue_for_you(
-                        dest,
-                        card.get("title") or "Punchcard",
-                        f"{card.get('done')}/{card.get('total')} still open",
-                        dest,
-                    )
-        self.last_totals["quests"] = verified
-        self.last_totals["quests_left"] = left
-        if hydrate_fail:
-            self.last_totals["quests_error"] = True
-        self.last_totals["attempted"] = self.last_totals.get("attempted", 0) + opened
-        self._log(
-            f"Quests: clicked {opened} link(s), verified {verified} done via API, "
-            f"{left} punchcard(s) still open."
-        )
+        if opened:
+            # Unverified opens count in their own `quests` bucket (and as
+            # attempts); `newly` is reserved for verified completions.
+            self.last_totals["quests"] = self.last_totals.get("quests", 0) + opened
+            self.last_totals["attempted"] = (
+                self.last_totals.get("attempted", 0) + opened
+            )
+        self._log(f"Quests: opened {opened} task(s) this run.")
 
     def _run_daily_set(
         self, driver, human, stop_event=None, already_on_dashboard=False
@@ -1917,9 +1704,8 @@ class NewDashboardDailySet:
         try:
             if not already_on_dashboard:
                 self._safe_get(driver, DASHBOARD_URL)
-            self._wait_ready(driver, timeout=15)
-            # Late RSC chunks still stream in after the page is ready.
-            if wait_or_stop(random.uniform(2, 3), stop_event):
+            self._wait_ready(driver, timeout=8)
+            if wait_or_stop(0.8, stop_event):
                 return False
             self._log("Daily Set: reading card list...")
 
@@ -1936,23 +1722,11 @@ class NewDashboardDailySet:
             if not todays:
                 diag = self._diagnostics(driver)
                 self._log(
-                    "[ERROR] Daily Set cards did not paint "
-                    f"(#dailyset={diag.get('hasDailyset')}, "
+                    "[WARNING] No daily-set activities found in the new dashboard — "
                     f"url={diag.get('url')!r} title={diag.get('title')!r} "
                     f"chunks={diag.get('chunks')} blobLen={diag.get('blobLen')} "
-                    f"hasDailySetItems={diag.get('hasKey')}). "
-                    "hide_browser/off-screen SPA often skips hydration. Not marking 3/3."
-                )
-                daily = (self.live_progress or {}).get("daily")
-                detail = "cards not painted"
-                if (
-                    isinstance(daily, (list, tuple))
-                    and len(daily) == 2
-                    and int(daily[1]) > 0
-                ):
-                    detail = f"{daily[0]}/{daily[1]} — cards not painted"
-                self._queue_for_you(
-                    "dailyset", "Daily Set", detail, DASHBOARD_URL, "daily"
+                    f"hasDailySetItems={diag.get('hasKey')} "
+                    f"hasDailysetSection={diag.get('hasDailyset')}"
                 )
                 return False
 
@@ -1983,9 +1757,6 @@ class NewDashboardDailySet:
                 "attempted": 0,
                 "earn": 0,
                 "quests": 0,
-                "quests_left": 0,
-                "quests_error": False,
-                "claim_left": 0,
             }
             self._log(f"New dashboard daily set: {already}/{total} already complete.")
 
@@ -2150,10 +1921,10 @@ class NewDashboardDailySet:
 
 def run_native_edge_streak(logger, stop_event, minutes, driver_manager):
     """
-    Edge Browsing Streak only credits a normal, foreground Microsoft Edge
-    (not a hidden WebDriver window). Launch real Edge on the account
-    profile, keep it in front, rotate Bing/MSN pages, and poll Minutes: x/30.
-    If progress sticks (the common 5/30 hang), kill Edge and relaunch.
+    Edge Browsing Streak uses a real Microsoft Edge process (not a WebDriver
+    window). Launch it on the account profile without activating it, rotate
+    Bing/MSN pages, and poll Minutes: x/30. If progress sticks (the common
+    5/30 hang), kill Edge and relaunch.
     """
     from ..emulator.driver import DriverManager
 
@@ -2171,7 +1942,7 @@ def run_native_edge_streak(logger, stop_event, minutes, driver_manager):
         "https://www.bing.com/search?q=local+news&form=ANNTH1",
     )
     log(
-        f"Edge Browsing Streak: opening real Edge in the foreground for "
+        f"Edge Browsing Streak: running Edge in the background for "
         f"up to {minutes} min (kills leftover Edge first; relaunch if stuck at 5/30)."
     )
     deadline = time.monotonic() + minutes * 60 + 180
@@ -2205,7 +1976,9 @@ def run_native_edge_streak(logger, stop_event, minutes, driver_manager):
             return None
         try:
             native_proc, port = driver_manager.start_native_edge(
-                pages[0], stop_event=stop_event
+                pages[0],
+                stop_event=stop_event,
+                hide=bool(getattr(driver_manager, "hide_browser", False)),
             )
         except Exception as err:
             if _stopped() or "stopped" in str(err).lower():
@@ -2219,7 +1992,6 @@ def run_native_edge_streak(logger, stop_event, minutes, driver_manager):
                 return None
             try:
                 attached = driver_manager.attach_to_edge(port)
-                DriverManager.focus_edge_window()
                 return attached
             except Exception as err:
                 last_err = err
@@ -2273,7 +2045,6 @@ def run_native_edge_streak(logger, stop_event, minutes, driver_manager):
             n += 1
             try:
                 drv.get(url)
-                DriverManager.focus_edge_window()
                 if wait_or_stop(random.uniform(2.0, 4.0), stop_event):
                     log("Edge Browsing Streak stopped by user.")
                     return

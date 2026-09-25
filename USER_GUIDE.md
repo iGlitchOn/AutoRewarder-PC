@@ -62,15 +62,6 @@ Welcome! This guide will help you get started with AutoRewarder and explain all 
 
 **That's it!** Installer handles everything for you.
 
-### Uninstall
-
-1. Open **Settings → Apps → AutoRewarder → Uninstall**, or **Start → AutoRewarder → Uninstall AutoRewarder**.
-2. If the app is running (including the tray icon), the uninstaller force-closes it. A normal window close is not enough: **Close to tray** hides the window and leaves the process alive.
-3. Choose whether to delete `%LOCALAPPDATA%\AutoRewarder` (accounts, Edge profiles, history, settings). Yes removes everything the app stored. No leaves that folder so a reinstall can reuse the same accounts.
-4. Scheduled tasks named `AutoRewarder` / `AutoRewarder.<account>`, the `AutoRewarderGUI` sign-in registry value, and a leftover Startup shortcut are removed either way.
-
-Deleting `C:\Program Files\AutoRewarder` by hand does not uninstall. The portable ZIP has no uninstaller: quit the exe, then delete the extracted folder and `%LOCALAPPDATA%\AutoRewarder`.
-
 ---
 
 ## First Run & Setup
@@ -424,19 +415,8 @@ A: Currently, the pre-built installer and standalone executable are only availab
 
 ---
 
-**Last Updated**: September 2026
+**Last Updated**: August 2026
 
-## Errors you can see
-
-- **Check updates says there is nothing new, and Download is still there.** Download only appears when this repo has a newer Setup. The message goes away on its own.
-- **Update opened GitHub.** The in-app update now runs `AutoRewarder-Setup.exe /VERYSILENT`. It does not open the release page. Windows may still ask for administrator approval.
-- **Spanish mode still showed English, or English mode showed Spanish.** The window, settings, For you, and the phone screen follow the language setting. The activity lines written by the engine stay in English.
-- **For you was empty or opened a logged-out browser.** For you lists the tasks the bot will not click, plus live quests after Tasks only. Open uses this account's Edge and brings that window to the desktop you are on.
-- **GitHub showed AutoRewarder Linting failed.** That check is Black. 4.3.45 is formatted with the same Black version the workflow installs.
-- **A phone drop took 15 minutes to notice.** A phone with no heartbeat for 20 seconds is offline.
-- **Unplugging a monitor brought Edge back.** Edge for a hidden run sits on a virtual desktop this app created. Closing the run removes that desktop only.
-- **Check-in stays 0/1.** The linked phone has to be online, and Rewards has to return the counter. The app does not write that counter by itself.
-
-**Version**: 4.3.45
+**Version**: 4.3.5
 
 Enjoy using AutoRewarder! 🎉

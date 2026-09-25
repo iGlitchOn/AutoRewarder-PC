@@ -7,7 +7,6 @@ Flow:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -16,8 +15,8 @@ import urllib.request
 
 from .config import APP_DIR, BASE_DIR
 
-PHONE_VERSION_CODE = 42
-PHONE_VERSION_NAME = "4.3.30"
+PHONE_VERSION_CODE = 19
+PHONE_VERSION_NAME = "4.3.5"
 MOBILE_REPO = "iGlitchOn/AutoRewarder-Mobile"
 
 
@@ -29,17 +28,6 @@ def updates_dir():
 
 def apk_path():
     return os.path.join(updates_dir(), "AutoRewarder.apk")
-
-
-def apk_digest(path=None):
-    target = path or apk_path()
-    if not os.path.isfile(target):
-        return ""
-    hasher = hashlib.sha256()
-    with open(target, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return "sha256:" + hasher.hexdigest()
 
 
 def manifest_path():
@@ -63,17 +51,11 @@ def write_manifest(extra=None):
         "versionCode": PHONE_VERSION_CODE,
         "versionName": PHONE_VERSION_NAME,
         "size": os.path.getsize(apk_path()) if os.path.isfile(apk_path()) else 0,
-        "digest": apk_digest(),
     }
     if extra:
         data.update(extra)
-    path = manifest_path()
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    with open(manifest_path(), "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
     return data
 
 
@@ -85,9 +67,7 @@ def _candidates():
     return [
         os.path.join(updates_dir(), "AutoRewarder.apk"),
         os.path.join(exe_dir, "AutoRewarder.apk") if exe_dir else "",
-        os.path.join(exe_dir, "AutoRewarder-phone.apk") if exe_dir else "",
         desktop,
-        os.path.join(BASE_DIR, "dist", "AutoRewarder-phone.apk"),
         os.path.join(
             BASE_DIR,
             "android",
@@ -120,9 +100,7 @@ def publish_local():
         return read_manifest()
     try:
         if os.path.abspath(best) != os.path.abspath(dest):
-            tmp = dest + ".tmp"
-            shutil.copy2(best, tmp)
-            os.replace(tmp, dest)
+            shutil.copy2(best, dest)
             print(f"Phone APK published from {best}")
     except OSError as e:
         print(f"[WARNING] Could not publish phone APK: {e}")
@@ -169,19 +147,11 @@ def fetch_github():
         )
         if token:
             req2.add_header("Authorization", "Bearer " + token)
-        tmp = dest + ".tmp"
-        with urllib.request.urlopen(req2, timeout=60) as resp, open(tmp, "wb") as out:
+        with urllib.request.urlopen(req2, timeout=60) as resp, open(dest, "wb") as out:
             shutil.copyfileobj(resp, out)
-            out.flush()
-            os.fsync(out.fileno())
-        os.replace(tmp, dest)
         print(f"Phone APK downloaded from GitHub {repo} ({apk.get('name')})")
         return write_manifest({"source": "github:" + repo, "tag": data.get("tag_name")})
     except Exception as e:
-        try:
-            os.remove(dest + ".tmp")
-        except OSError:
-            pass
         print(f"[WARNING] GitHub APK download failed: {e}")
         return None
 
@@ -200,14 +170,10 @@ def update_payload():
     info = read_manifest()
     if not os.path.isfile(apk_path()):
         info = publish_local()
-    digest = str(info.get("digest") or "")
-    if os.path.isfile(apk_path()) and not digest:
-        digest = apk_digest()
     return {
         "ok": True,
         "versionCode": int(info.get("versionCode") or PHONE_VERSION_CODE),
         "versionName": str(info.get("versionName") or PHONE_VERSION_NAME),
         "size": int(info.get("size") or 0),
-        "digest": digest,
         "apk": "/update/apk",
     }

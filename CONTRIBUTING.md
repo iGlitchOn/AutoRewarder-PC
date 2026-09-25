@@ -43,6 +43,4 @@ If you don't want to mess with JSON or Pull Requests, you can still help!
 
 Every query counts, even if you add just 100-500 new lines!
 
-By submitting queries or a pull request you license that contribution under the MIT license of this repository (copyright remains yours; the project may redistribute it). Prefer opening PRs on [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC). The original safarsin discussion linked above is still valid for the upstream project.
-
 Thank you for making this project better!

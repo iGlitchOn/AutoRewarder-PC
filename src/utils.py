@@ -1,107 +1,11 @@
 """Shared utility helpers for AutoRewarder."""
 
-import os
 import re
 import time
 import random
 import requests
 
-from .config import APP_DIR, GITHUB_VERSION, REPO
-
-
-def _gui_lock_path():
-    return os.path.join(APP_DIR, "gui.lock")
-
-
-def write_gui_lock():
-    path = _gui_lock_path()
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(str(os.getpid()))
-
-
-def clear_gui_lock():
-    try:
-        os.remove(_gui_lock_path())
-    except OSError:
-        pass
-
-
-class HeadlessRunLock:
-    """One headless AutoRewarder at a time so schtasks cannot share Edge."""
-
-    def __init__(self, path=None):
-        self.path = path or os.path.join(APP_DIR, "headless.run.lock")
-        self._fh = None
-
-    def acquire(self, wait_s=0):
-        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        deadline = time.time() + max(0, float(wait_s or 0))
-        while True:
-            fh = open(self.path, "a+b")
-            try:
-                fh.seek(0)
-                if os.name == "nt":
-                    import msvcrt
-
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                fh.seek(0)
-                fh.truncate()
-                fh.write(str(os.getpid()).encode("ascii"))
-                fh.flush()
-                self._fh = fh
-                return True
-            except OSError:
-                try:
-                    fh.close()
-                except Exception:
-                    pass
-                if time.time() >= deadline:
-                    return False
-                time.sleep(5)
-
-    def release(self):
-        fh = self._fh
-        self._fh = None
-        if fh is None:
-            return
-        try:
-            fh.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-        except Exception:
-            pass
-        try:
-            fh.close()
-        except Exception:
-            pass
-
-
-def gui_instance_running():
-    path = _gui_lock_path()
-    if not os.path.isfile(path):
-        return False
-    try:
-        pid = int(open(path, encoding="utf-8").read().strip())
-    except (OSError, ValueError):
-        return False
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+from .config import GITHUB_VERSION, REPO
 
 
 def _github_is_newer(latest, current):
@@ -132,41 +36,15 @@ def release_is_newer(latest, current):
     return _version(latest) > _version(current)
 
 
-def _pick_release_asset(assets):
-    """Prefer AutoRewarder-Setup.exe. Other installers are only a fallback."""
-    assets = list(assets or [])
-    for item in assets:
-        if str((item or {}).get("name") or "") == "AutoRewarder-Setup.exe":
-            return item
-    return next(
-        (
-            item
-            for item in assets
-            if str((item or {}).get("name") or "")
-            .lower()
-            .endswith((".exe", ".msi", ".zip", ".apk"))
-        ),
-        None,
-    )
-
-
 def github_latest_release(repo, logger=None):
-    """Return the latest GitHub release metadata for ``repo``.
-
-    Uses ``GITHUB_TOKEN`` / ``GH_TOKEN`` when set so private repos (and the
-    GUI Check updates button) match ``apk_update.fetch_github``.
-    """
+    """Return the latest public GitHub release metadata for ``repo``."""
     try:
-        headers = {
-            "User-Agent": "AutoRewarder-App",
-            "Accept": "application/vnd.github+json",
-        }
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
-        if token:
-            headers["Authorization"] = "Bearer " + token
         response = requests.get(
             f"https://api.github.com/repos/{repo}/releases/latest",
-            headers=headers,
+            headers={
+                "User-Agent": "AutoRewarder-App",
+                "Accept": "application/vnd.github+json",
+            },
             timeout=8,
         )
         if response.status_code != 200:
@@ -174,62 +52,35 @@ def github_latest_release(repo, logger=None):
                 logger(
                     f"[WARNING] GitHub update check failed for {repo}: {response.status_code}"
                 )
-            return {"ok": False, "error": f"http_{response.status_code}", "repo": repo}
+            return None
         data = response.json()
         tag = str(data.get("tag_name") or "").strip()
         if not tag:
-            return {"ok": False, "error": "no_tag", "repo": repo}
+            return None
         assets = data.get("assets") or []
-        asset = _pick_release_asset(assets)
-        file_url = str((asset or {}).get("browser_download_url") or "")
+        asset = next(
+            (
+                item
+                for item in assets
+                if str(item.get("name") or "")
+                .lower()
+                .endswith((".exe", ".msi", ".zip", ".apk"))
+            ),
+            None,
+        )
         return {
-            "ok": True,
             "repo": repo,
             "tag": tag,
             "name": data.get("name") or tag,
             "url": data.get("html_url") or f"https://github.com/{repo}/releases/latest",
-            "download_url": file_url,
+            "download_url": (asset or {}).get("browser_download_url")
+            or data.get("html_url"),
             "asset_name": (asset or {}).get("name") or "",
-            "digest": str((asset or {}).get("digest") or ""),
-            "size": (asset or {}).get("size") or 0,
         }
     except Exception as exc:
         if logger:
             logger(f"[WARNING] Could not check GitHub release {repo}: {exc}")
-        return {"ok": False, "error": "network", "repo": repo}
-
-
-def http_url_is_live(url, timeout=8):
-    """True when url is http(s) and GitHub still has the file."""
-    url = str(url or "").strip()
-    if not url.lower().startswith(("http://", "https://")):
-        return False
-    headers = {
-        "User-Agent": "AutoRewarder-App",
-        "Accept": "application/octet-stream",
-    }
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
-    if token:
-        headers["Authorization"] = "Bearer " + token
-    try:
-        response = requests.head(
-            url, headers=headers, timeout=timeout, allow_redirects=True
-        )
-        if response.status_code == 405:
-            response = requests.get(
-                url,
-                headers=headers,
-                timeout=timeout,
-                stream=True,
-                allow_redirects=True,
-            )
-            try:
-                return response.status_code in (200, 206)
-            finally:
-                response.close()
-        return response.status_code in (200, 206)
-    except Exception:
-        return False
+        return None
 
 
 def wait_or_stop(seconds, stop_event=None):
@@ -326,8 +177,6 @@ def check_for_updates(logger=None):
     """
     Check GitHub API for the latest release and compare it to the current version.
 
-    Same timeout, headers, and optional token as ``github_latest_release``.
-
     Args:
         logger (callable, optional): A function to log messages. Defaults to None.
 
@@ -335,13 +184,40 @@ def check_for_updates(logger=None):
         tuple: (is_update_available (bool), latest_version (str or None))
     """
     try:
-        release = github_latest_release(REPO, logger=logger)
-        if not release or not release.get("ok"):
-            return False, None
-        latest = release.get("tag")
-        if not latest:
-            return False, None
-        return _github_is_newer(latest, GITHUB_VERSION), latest
+        headers = {"User-Agent": "AutoRewarder-App"}
+
+        response = requests.get(
+            f"https://api.github.com/repos/{REPO}/releases/latest",
+            headers=headers,
+            timeout=5,
+        )
+        if response.status_code == 200:
+            latest = response.json().get("tag_name")
+            if latest:
+                return _github_is_newer(latest, GITHUB_VERSION), latest
+        elif response.status_code == 429:
+            if logger:
+                logger("[WARNING] GitHub API rate limit reached (429).")
+                logger("Try again later or check manually for updates.")
+        elif response.status_code == 403:
+
+            is_rate_limit = response.headers.get("X-Ratelimit-Remaining") == "0"
+
+            if logger:
+                if is_rate_limit:
+                    logger(
+                        "[WARNING] GitHub API rate limit exceeded (403). Try again later."
+                    )
+                else:
+                    logger(
+                        "[WARNING] GitHub access forbidden (403). Check your VPN or connection."
+                    )
+        else:
+            if logger:
+                logger(
+                    f"[WARNING] GitHub update check failed. Status: {response.status_code}"
+                )
+
     except requests.exceptions.RequestException as e:
         if logger:
             logger(f"[WARNING] Network error while checking for updates: {e}")

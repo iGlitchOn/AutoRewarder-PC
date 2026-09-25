@@ -66,12 +66,15 @@ if __name__ == "__main__":
     )
     args, _ = parser.parse_known_args()
 
-    # Delegate to the CLI runner when --headless is set. Any remaining args
-    # (e.g., --account, --pc, --mobile) stay in sys.argv so the CLI parser
-    # can consume them.
-    if args.headless:
-        if "--headless" in sys.argv:
-            sys.argv.remove("--headless")
+    # Scheduled and sign-in launches must never create a GUI window. The old
+    # --from-login path opened pywebview first and only then started the run,
+    # which stole focus from whatever the user was doing. Both background
+    # entry points use the same headless runner now; the remaining arguments
+    # (e.g. --account, --pc, --mobile) stay available to its parser.
+    if args.headless or args.from_login:
+        for flag in ("--headless", "--from-login"):
+            if flag in sys.argv:
+                sys.argv.remove(flag)
 
         from AutoRewarder_CLI import main as headless_main
 
@@ -86,12 +89,6 @@ if __name__ == "__main__":
     from src.config import GUI_DIR, ASSETS_DIR
 
     api = AutoRewarderAPI()
-    try:
-        from src.utils import write_gui_lock
-
-        write_gui_lock()
-    except Exception as e:
-        _boot_log("gui lock failed " + str(e))
     if args.from_login:
         api.enable_login_autorun()
     window = webview.create_window(
@@ -155,6 +152,12 @@ if __name__ == "__main__":
             try:
                 if getattr(api, "driver_manager", None) is not None:
                     api.driver_manager.kill_now(wait=False)
+            except Exception:
+                pass
+            try:
+                from src.emulator.driver import DriverManager
+
+                DriverManager.kill_all_autorewarder_edge(wait=False)
             except Exception:
                 pass
             try:

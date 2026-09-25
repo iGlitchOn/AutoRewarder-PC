@@ -37,58 +37,27 @@ def default_account_schedule():
     return dict(DEFAULT_ACCOUNT_SCHEDULE)
 
 
-UNREADABLE = object()
-
-
-def _load_json_dict(path):
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
-        return None
-
-
-def _stash_file(path, suffix):
-    dest = path + suffix
-    try:
-        if os.path.isfile(dest):
-            os.remove(dest)
-        os.replace(path, dest)
-    except OSError:
-        pass
-
-
 def _read_json(path, default):
-    """Read JSON. Parse failures restore .backup; locks do not wipe the file."""
+    """Read a JSON file. On any parse/IO failure, back it up as .backup and return default."""
     if not os.path.exists(path):
         return default
 
-    import time as _time
-
-    for attempt in range(4):
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            return data
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
+        backup_path = path + ".backup"
+        if os.path.exists(backup_path):
+            try:
+                os.remove(backup_path)
+            except OSError:
+                pass
         try:
-            with open(path, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            if isinstance(data, dict):
-                return data
-            raise ValueError("meta must be an object")
-        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            recovered = _load_json_dict(path + ".backup")
-            if recovered is not None:
-                _stash_file(path, ".corrupt")
-                try:
-                    _write_json(path, recovered)
-                except OSError:
-                    pass
-                return recovered
-            _stash_file(path, ".backup")
-            return default
+            os.replace(path, backup_path)
         except OSError:
-            _time.sleep(0.15 * (attempt + 1))
-    return UNREADABLE
+            pass
+        return default
 
 
 def _write_json(path, data):
@@ -121,8 +90,6 @@ def _write_json(path, data):
         try:
             with open(temp_path, "w", encoding="utf-8") as file:
                 json.dump(data, file, indent=4)
-                file.flush()
-                os.fsync(file.fileno())
             os.replace(temp_path, path)
             return
         except PermissionError as e:
@@ -147,7 +114,6 @@ class AccountMetaManager:
         """
         self.account_id = account_id
         self.path = account_meta_path(account_id)
-        self._last_good = None
 
     def get_meta(self):
         """Return per-account meta merged with defaults."""
@@ -160,17 +126,6 @@ class AccountMetaManager:
                 pass
 
         if not os.path.exists(self.path):
-            recovered = _load_json_dict(self.path + ".backup")
-            if recovered is not None:
-                merged = {**defaults, **recovered}
-                try:
-                    self.save_meta(merged)
-                except OSError:
-                    pass
-                self._last_good = dict(merged)
-                return merged
-            if self._last_good:
-                return {**defaults, **self._last_good}
             try:
                 self.save_meta(defaults)
             except OSError:
@@ -178,10 +133,6 @@ class AccountMetaManager:
             return defaults
 
         meta = _read_json(self.path, None)
-        if meta is UNREADABLE:
-            if self._last_good:
-                return {**defaults, **self._last_good}
-            return defaults
         if not isinstance(meta, dict):
             try:
                 self.save_meta(defaults)
@@ -189,15 +140,11 @@ class AccountMetaManager:
                 pass
             return defaults
 
-        merged = {**defaults, **meta}
-        self._last_good = dict(merged)
-        return merged
+        return {**defaults, **meta}
 
     def save_meta(self, meta):
         """Persist per-account meta to disk."""
         _write_json(self.path, meta)
-        if isinstance(meta, dict):
-            self._last_good = dict(meta)
 
     def is_first_setup_done(self):
         """Return True if first setup is marked complete."""
@@ -216,12 +163,6 @@ class AccountMetaManager:
         merged = default_account_schedule()
         if isinstance(sched, dict):
             merged.update({k: sched.get(k, v) for k, v in merged.items()})
-        fallback = default_account_schedule()
-        for key in ("runDuration", "queriesPerHour", "queries_pc", "queries_mobile"):
-            try:
-                merged[key] = int(merged[key])
-            except (TypeError, ValueError):
-                merged[key] = fallback[key]
         return merged
 
     def set_schedule(self, sched):
@@ -337,12 +278,7 @@ class AccountMetaManager:
         if not isinstance(phone, dict) or not phone.get("id"):
             return
         meta = self.get_meta()
-        phones_raw = meta.get("phones")
-        phones = (
-            [dict(p) for p in phones_raw if isinstance(p, dict)]
-            if isinstance(phones_raw, list)
-            else []
-        )
+        phones = [dict(p) for p in (meta.get("phones") or []) if isinstance(p, dict)]
         pid = str(phone.get("id"))
         found = False
         for i, existing in enumerate(phones):
@@ -363,12 +299,7 @@ class AccountMetaManager:
         if not pid:
             return False
         meta = self.get_meta()
-        phones_raw = meta.get("phones")
-        phones = (
-            [p for p in phones_raw if isinstance(p, dict)]
-            if isinstance(phones_raw, list)
-            else []
-        )
+        phones = [p for p in (meta.get("phones") or []) if isinstance(p, dict)]
         kept = [p for p in phones if str(p.get("id")) != pid]
         if len(kept) == len(phones):
             return False

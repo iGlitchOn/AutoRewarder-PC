@@ -168,9 +168,6 @@
       pywebview.api.get_history().then(function(data) {
         historyRows = Array.isArray(data) ? data.slice().reverse() : [];
         render_history();
-      }).catch(function () {
-        const body = document.getElementById('table_body');
-        if (body) body.innerHTML = '<tr><td colspan="4" class="empty-row">Could not load history.</td></tr>';
       });
     });
   </script>

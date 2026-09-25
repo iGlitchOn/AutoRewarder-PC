@@ -1,14 +1,10 @@
 """Edge WebDriver setup for per-account profiles."""
 
-import json
 import os
 import platform
-import shutil
 import socket
 import subprocess
-import threading
 import time
-import urllib.request
 
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options
@@ -26,24 +22,17 @@ class DriverManager:
     different profile_path.
     """
 
-    def __init__(self, profile_path=None, hide_browser=False, logger=None):
+    def __init__(self, profile_path=None, hide_browser=False):
         """
         Args:
             profile_path (str | None): Absolute path to the Selenium --user-data-dir
                 directory. None when no account is selected (empty state). In that
                 case setup_driver will raise, since there is nothing to launch.
             hide_browser (bool): Whether to run the browser in headless mode.
-            logger: Optional callable for a one-line hide failure. Not the token log.
         """
         self.profile_path = profile_path
         self.hide_browser = hide_browser
-        self.logger = logger
         self._native_pids = []
-        self._debug_ports = []
-        self._hidden_desktop_id = None
-        self._hidden_desktop_fallback_id = None
-        self._vd_fail_logged = False
-        self._vd_lock = threading.Lock()
 
     @staticmethod
     def _edge_version():
@@ -87,24 +76,14 @@ class DriverManager:
                     return path
         return None
 
-    def _edge_service(self, verbose=False, force_manager=False):
+    def _edge_service(self, verbose=False):
         kwargs = {}
-        path = None if force_manager else self._msedgedriver_path()
+        path = self._msedgedriver_path()
         if path:
             kwargs["executable_path"] = path
         if verbose:
             try:
-                log_dir = self.profile_path or APP_DIR
-                log_path = os.path.join(log_dir, "msedgedriver.log")
-                try:
-                    if (
-                        os.path.isfile(log_path)
-                        and os.path.getsize(log_path) > 2 * 1024 * 1024
-                    ):
-                        os.remove(log_path)
-                except OSError:
-                    pass
-                kwargs["log_output"] = log_path
+                kwargs["log_output"] = os.path.join(APP_DIR, "msedgedriver.log")
                 kwargs["service_args"] = ["--verbose"]
             except Exception:
                 pass
@@ -123,12 +102,6 @@ class DriverManager:
                 "msedge failed to start",
                 "exited normally",
                 "chrome not reachable",
-                "session not created",
-                "invalid session",
-                "session deleted",
-                "not reachable",
-                "disconnected",
-                "target window already closed",
             )
         )
 
@@ -150,108 +123,87 @@ class DriverManager:
                     pass
         return False
 
-    def _devtools_port_file(self):
-        """Port written by Edge inside this profile, or None."""
-        if not self.profile_path:
-            return None
-        path = os.path.join(self.profile_path, "DevToolsActivePort")
+    @staticmethod
+    def _foreground_window():
+        """Return the current foreground HWND on Windows, if available."""
+        if platform.system() != "Windows":
+            return 0
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
-                line = (handle.readline() or "").strip()
-            port = int(line)
-        except (OSError, ValueError):
-            return None
-        if 1 <= port <= 65535:
-            return port
-        return None
+            import ctypes
 
-    def _edge_devtools(self, port):
-        """True when this port speaks Edge's DevTools HTTP."""
-        if not self._wait_debug_port(port, timeout=0.4):
-            return False
-        try:
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{int(port)}/json/version",
-                method="GET",
-            )
-            with urllib.request.urlopen(req, timeout=0.8) as resp:
-                body = resp.read(500).decode("utf-8", "replace").lower()
+            return int(ctypes.windll.user32.GetForegroundWindow())
         except Exception:
-            return False
-        return "edg" in body
+            return 0
 
-    def _debug_port_from_processes(self):
-        """remote-debugging-port of an msedge.exe already on this profile."""
-        if platform.system() != "Windows" or not self.profile_path:
-            return None
-        script = (
-            "$profile = $env:AR_EDGE_PROFILE\n"
-            "if (-not $profile) { return }\n"
-            "$alt = $profile.Replace('\\','/')\n"
-            "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
-            "-ErrorAction SilentlyContinue | ForEach-Object {\n"
-            "  $cl = $_.CommandLine\n"
-            "  if (-not $cl) { return }\n"
-            "  if ($cl -notlike ('*' + $profile + '*') -and "
-            "$cl -notlike ('*' + $alt + '*')) { return }\n"
-            "  if ($cl -match '--remote-debugging-port=(\\d+)') { $matches[1]; return }\n"
-            "} | Select-Object -First 1\n"
-        )
-        env = os.environ.copy()
-        env["AR_EDGE_PROFILE"] = os.path.abspath(self.profile_path)
+    @staticmethod
+    def _restore_foreground_if_edge(previous_hwnd):
+        """Return focus when a newly-created Edge window activated itself."""
+        if platform.system() != "Windows" or not previous_hwnd:
+            return
         try:
-            out = subprocess.run(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    script,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=6,
-                creationflags=0x08000000,
-                env=env,
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            current_hwnd = int(user32.GetForegroundWindow())
+            if not current_hwnd or current_hwnd == int(previous_hwnd):
+                return
+
+            owner_pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(
+                ctypes.c_void_p(current_hwnd), ctypes.byref(owner_pid)
             )
-        except Exception:
-            return None
-        lines = [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
-        if not lines:
-            return None
-        try:
-            port = int(lines[0])
-        except ValueError:
-            return None
-        if 1 <= port <= 65535:
-            return port
-        return None
-
-    def _try_reuse_edge(self, scan_processes=False):
-        """Attach to this profile's Edge when one is already listening.
-
-        A second msedge on the same user-data-dir raises
-        "user data directory is already in use". Warmup and Start must share.
-        """
-        ports = []
-        file_port = self._devtools_port_file()
-        if file_port:
-            ports.append(file_port)
-        if scan_processes:
-            found = self._debug_port_from_processes()
-            if found and found not in ports:
-                ports.insert(0, found)
-        for port in ports:
-            if not self._edge_devtools(port):
-                continue
+            process = kernel32.OpenProcess(0x1000, False, owner_pid.value)
+            if not process:
+                return
             try:
-                driver = self.attach_to_edge(port)
-            except Exception:
-                continue
-            self._remember_driver_pid(driver)
-            self._remember_driver_port(driver)
-            return driver
-        return None
+                size = ctypes.c_ulong(1024)
+                buffer = ctypes.create_unicode_buffer(size.value)
+                if not kernel32.QueryFullProcessImageNameW(
+                    process, 0, buffer, ctypes.byref(size)
+                ):
+                    return
+                if os.path.basename(buffer.value).lower() != "msedge.exe":
+                    return
+            finally:
+                kernel32.CloseHandle(process)
+
+            # The app launched Edge, so Windows permits returning to the exact
+            # window that was active before the automation started. Attach the
+            # caller briefly to the foreground thread because Windows may
+            # otherwise reject SetForegroundWindow after Edge activates.
+            current_thread = int(kernel32.GetCurrentThreadId())
+            foreground_thread = int(
+                user32.GetWindowThreadProcessId(
+                    ctypes.c_void_p(current_hwnd), None
+                )
+            )
+            attached = bool(
+                foreground_thread
+                and foreground_thread != current_thread
+                and user32.AttachThreadInput(
+                    foreground_thread, current_thread, True
+                )
+            )
+            try:
+                user32.SetForegroundWindow(ctypes.c_void_p(int(previous_hwnd)))
+                user32.BringWindowToTop(ctypes.c_void_p(int(previous_hwnd)))
+                # SetForegroundWindow can report success while Edge keeps the
+                # foreground lock. SwitchToThisWindow is the reliable fallback
+                # for returning focus after a child browser process starts.
+                try:
+                    user32.SwitchToThisWindow(
+                        ctypes.c_void_p(int(previous_hwnd)), True
+                    )
+                except Exception:
+                    pass
+            finally:
+                if attached:
+                    user32.AttachThreadInput(
+                        foreground_thread, current_thread, False
+                    )
+        except Exception:
+            pass
 
     def _attach_fallback(self, hide=False):
         """Launch a real Edge with a debug port and attach Selenium to it."""
@@ -280,12 +232,7 @@ class DriverManager:
     DESKTOP_WINDOW_SIZE = "1920,1080"
 
     def setup_driver(
-        self,
-        headless=None,
-        disable_identity=False,
-        mobile=False,
-        bing_app=False,
-        market=None,
+        self, headless=None, disable_identity=False, mobile=False, bing_app=False
     ):
         """
         Set up the Selenium WebDriver for MS Edge using this manager's profile.
@@ -317,21 +264,18 @@ class DriverManager:
         if headless is None:
             headless = self.hide_browser
 
+        previous_foreground = self._foreground_window()
+
         os.makedirs(self.profile_path, exist_ok=True)
-        # Warmup or a run may already own this profile. Attach to that Edge.
-        # Killing it and launching another is what prints
-        # "user data directory is already in use".
-        _driver = self._try_reuse_edge()
-        if _driver is None:
-            # A forced app close can leave msedge.exe alive with this account's
-            # profile. Chromium rejects a second process using the same profile,
-            # then Selenium reports the misleading DevToolsActivePort error.
-            # Edge 133+ also relaunches itself (compat layer): the first process
-            # exits, a second window stays open, and Selenium reports
-            # "session not created: Chrome instance exited".
-            self.close_running_edge()
-            self._clear_profile_locks()
-            time.sleep(0.8)
+        # A forced app close can leave msedge.exe alive with this account's
+        # profile. Chromium rejects a second process using the same profile,
+        # then Selenium reports the misleading DevToolsActivePort error.
+        # Edge 133+ also relaunches itself (compat layer): the first process
+        # exits, a second window stays open, and Selenium reports
+        # "session not created: Chrome instance exited".
+        self.close_running_edge()
+        self._clear_profile_locks()
+        time.sleep(0.8)
 
         def build_options(recovery_mode=False):
             options = Options()
@@ -350,9 +294,7 @@ class DriverManager:
             # Stop Edge from spawning a second process and exiting the first.
             options.add_argument("--edge-skip-compat-layer-relaunch")
             options.add_argument(
-                self._disable_features(
-                    ("msEdgeStartupBoost", "msEdgeSleepingTabs"), headless
-                )
+                "--disable-features=msEdgeStartupBoost,msEdgeSleepingTabs"
             )
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
@@ -367,100 +309,53 @@ class DriverManager:
 
             if disable_identity:
                 options.add_argument(
-                    self._disable_features(
-                        (
-                            "msImplicitSignin",
-                            "AadSsoUrlInterceptionEnabled",
-                            "WebOtpBackendAuto",
-                            "IdentityConsistency",
-                            "msIdentityWebSignIn",
-                            "msEdgeIdentitySyncInterception",
-                        ),
-                        headless,
-                    )
+                    "--disable-features=msImplicitSignin,AadSsoUrlInterceptionEnabled,"
+                    "WebOtpBackendAuto,IdentityConsistency,msIdentityWebSignIn,"
+                    "msEdgeIdentitySyncInterception"
                 )
                 options.add_argument("--disable-sync")
 
             if headless:
-                # Another Task View desktop, not --window-position. Unplugging
-                # a monitor pulls a coordinate-parked window back on screen.
-                # These flags keep Chromium painting on a desktop that is not
-                # the one the user is looking at.
-                options.add_argument("--disable-backgrounding-occluded-windows")
+                # Off-screen window, not --headless=new. Chromium headless
+                # often skips painting the Next.js /earn cards, so quizzes
+                # and puzzles never appear. An off-screen GPU window still
+                # hydrates and can credit Rewards.
+                options.add_argument("--window-position=-32000,-32000")
 
             if recovery_mode:
                 options.add_argument("--disable-gpu")
                 options.add_argument("--disable-software-rasterizer")
             return options
 
-        def try_launch():
-            last_err = None
-            launched = None
-            for attempt in range(3):
-                try:
-                    stale_driver = (
-                        last_err is not None
-                        and "session not created" in str(last_err).lower()
-                    )
-                    launched = webdriver.Edge(
-                        service=self._edge_service(
-                            verbose=attempt == 2, force_manager=stale_driver
-                        ),
-                        options=build_options(recovery_mode=attempt > 0),
-                    )
-                    last_err = None
-                    self._remember_driver_pid(launched)
-                    self._remember_driver_port(launched)
-                    break
-                except Exception as err:
-                    last_err = err
-                    msg = str(err).lower()
-                    # The profile is taken by an Edge we already started.
-                    # Do not launch a native fallback on top of it.
-                    if "user data directory is already in use" in msg:
-                        reused = self._try_reuse_edge(scan_processes=attempt == 2)
-                        if reused is not None:
-                            launched = reused
-                            last_err = None
-                            break
+        last_err = None
+        _driver = None
+        for attempt in range(3):
+            try:
+                _driver = webdriver.Edge(
+                    service=self._edge_service(verbose=attempt == 2),
+                    options=build_options(recovery_mode=attempt > 0),
+                )
+                last_err = None
+                break
+            except Exception as err:
+                last_err = err
+                self.close_running_edge()
+                self._clear_profile_locks()
+                if self._session_died(err):
+                    try:
+                        _driver = self._attach_fallback(hide=headless)
+                        last_err = None
+                        break
+                    except Exception as attach_err:
+                        last_err = attach_err
                         self.close_running_edge()
                         self._clear_profile_locks()
-                        time.sleep(1.2 + attempt)
-                        continue
-                    self.close_running_edge()
-                    self._clear_profile_locks()
-                    if self._session_died(err):
-                        try:
-                            launched = self._attach_fallback(hide=headless)
-                            last_err = None
-                            self._remember_driver_pid(launched)
-                            self._remember_driver_port(launched)
-                            break
-                        except Exception as attach_err:
-                            last_err = attach_err
-                            self.close_running_edge()
-                            self._clear_profile_locks()
-                    time.sleep(1.2 + attempt)
-            return launched, last_err
-
-        if _driver is None:
-            _driver, last_err = try_launch()
-            busy = (
-                "user data directory is already in use" in str(last_err or "").lower()
-            )
-            if _driver is None and busy:
-                _driver = self._try_reuse_edge(scan_processes=True)
-            # A locked profile is not a corrupt profile. Rewriting JSON while
-            # Edge holds the folder would drop cookies for nothing.
-            if (
-                _driver is None
-                and not busy
-                and self._profile_json_corrupt()
-                and self._repair_profile_json()
-            ):
-                _driver, last_err = try_launch()
+                time.sleep(1.2 + attempt)
         if _driver is None:
             raise last_err
+
+        if headless:
+            self._restore_foreground_if_edge(previous_foreground)
 
         use_mobile = bool(mobile or bing_app)
         mobile_ua = self.BING_APP_USER_AGENT if bing_app else self.MOBILE_USER_AGENT
@@ -505,27 +400,25 @@ class DriverManager:
             except Exception:
                 # CDP is best-effort; fall back to the UA+window-size flags.
                 pass
-            if bing_app and market:
-                # Same setmkt as bing_app.py. Bogotá only for a CO market,
-                # so an en-US Windows locale does not mix with es-CO.
-                mkt = str(market)
+            if bing_app:
+                # Phone Bing app in Colombia: news / check-in / read-to-earn
+                # are served for es-CO, not the US desktop dashboard.
                 try:
                     _driver.execute_cdp_cmd(
-                        "Emulation.setLocaleOverride", {"locale": mkt}
+                        "Emulation.setLocaleOverride", {"locale": "es-CO"}
                     )
-                    if mkt.upper().endswith("-CO"):
-                        _driver.execute_cdp_cmd(
-                            "Emulation.setTimezoneOverride",
-                            {"timezoneId": "America/Bogota"},
-                        )
-                        _driver.execute_cdp_cmd(
-                            "Emulation.setGeolocationOverride",
-                            {
-                                "latitude": 4.711,
-                                "longitude": -74.0721,
-                                "accuracy": 100,
-                            },
-                        )
+                    _driver.execute_cdp_cmd(
+                        "Emulation.setTimezoneOverride",
+                        {"timezoneId": "America/Bogota"},
+                    )
+                    _driver.execute_cdp_cmd(
+                        "Emulation.setGeolocationOverride",
+                        {
+                            "latitude": 4.711,
+                            "longitude": -74.0721,
+                            "accuracy": 100,
+                        },
+                    )
                 except Exception:
                     pass
 
@@ -534,288 +427,7 @@ class DriverManager:
             _driver.set_script_timeout(20)
         except Exception:
             pass
-        self._apply_command_timeout(_driver, 30)
-        if headless:
-            self._hide_edge_on_virtual_desktop(_driver)
-            self._bind_hidden_desktop_quit(_driver)
         return _driver
-
-    @staticmethod
-    def _disable_features(names, hide):
-        items = []
-        for name in names:
-            if name and name not in items:
-                items.append(name)
-        if hide and "CalculateNativeWinOcclusion" not in items:
-            items.append("CalculateNativeWinOcclusion")
-        return "--disable-features=" + ",".join(items)
-
-    def _log_vd_once(self, message):
-        if self._vd_fail_logged:
-            return
-        self._vd_fail_logged = True
-        logger = self.logger
-        if logger is not None:
-            try:
-                logger(message)
-                return
-            except Exception:
-                pass
-        print(message)
-
-    def _edge_ports(self, driver=None):
-        ports = []
-        for port in getattr(self, "_debug_ports", []) or []:
-            try:
-                ports.append(int(port))
-            except (TypeError, ValueError):
-                continue
-        if driver is None:
-            return ports
-        caps = getattr(driver, "capabilities", None) or {}
-        for key in ("ms:edgeOptions", "goog:chromeOptions"):
-            opts = caps.get(key) or {}
-            if not isinstance(opts, dict):
-                continue
-            addr = str(opts.get("debuggerAddress") or "")
-            if ":" not in addr:
-                continue
-            try:
-                port = int(addr.rsplit(":", 1)[-1])
-            except ValueError:
-                continue
-            if port not in ports:
-                ports.append(port)
-        return ports
-
-    def _hide_edge_on_virtual_desktop(self, driver=None):
-        """Move this account's Edge onto one new desktop. Do not switch desktops."""
-        if platform.system() != "Windows":
-            return
-        with self._vd_lock:
-            self._hide_edge_locked(driver)
-
-    def _hide_edge_locked(self, driver):
-        from .virtual_desktop import (
-            create_desktop,
-            desktop_exists,
-            edge_hwnds,
-            move_window_to_desktop,
-            remove_desktop,
-            restore_normal_position,
-        )
-
-        hwnds = []
-        deadline = time.time() + 4
-        while True:
-            hwnds = edge_hwnds(self.profile_path, self._edge_ports(driver))
-            if hwnds or time.time() >= deadline:
-                break
-            time.sleep(0.15)
-        if not hwnds:
-            self._log_vd_once(
-                "Could not find the Edge window to move to a virtual desktop. "
-                "It stays on this desktop."
-            )
-            return
-        desktop_id = self._hidden_desktop_id
-        fallback_id = self._hidden_desktop_fallback_id
-        if desktop_id:
-            try:
-                exists = desktop_exists(desktop_id)
-            except Exception:
-                exists = True
-            if not exists:
-                desktop_id = None
-                self._hidden_desktop_id = None
-                self._hidden_desktop_fallback_id = None
-        created_now = False
-        if not desktop_id:
-            try:
-                desktop_id, fallback_id = create_desktop()
-            except Exception:
-                desktop_id = None
-            if not desktop_id:
-                self._log_vd_once(
-                    "Could not create a virtual desktop to hide Edge. "
-                    "The window stays on this desktop."
-                )
-                restore_normal_position(hwnds)
-                return
-            created_now = True
-            self._hidden_desktop_id = desktop_id
-            self._hidden_desktop_fallback_id = fallback_id
-        moved = False
-        for hwnd in hwnds:
-            try:
-                if move_window_to_desktop(hwnd, desktop_id):
-                    moved = True
-            except Exception:
-                continue
-        if moved:
-            return
-        if created_now:
-            try:
-                removed = remove_desktop(desktop_id, fallback_id)
-            except Exception:
-                removed = False
-            if removed:
-                self._hidden_desktop_id = None
-                self._hidden_desktop_fallback_id = None
-        self._log_vd_once(
-            "Could not move Edge onto a virtual desktop. "
-            "The window stays on this desktop."
-        )
-        restore_normal_position(hwnds)
-
-    def _bind_hidden_desktop_quit(self, driver):
-        if driver is None or getattr(driver, "_ar_vd_quit_bound", False):
-            return
-        original = driver.quit
-        manager = self
-
-        def _quit(*args, **kwargs):
-            try:
-                return original(*args, **kwargs)
-            finally:
-                manager.release_hidden_desktop()
-
-        driver.quit = _quit
-        driver._ar_vd_quit_bound = True
-
-    def release_hidden_desktop(self):
-        """Remove only the desktop this process created. No-op if create failed."""
-        if platform.system() != "Windows":
-            self._hidden_desktop_id = None
-            self._hidden_desktop_fallback_id = None
-            return
-        with self._vd_lock:
-            desktop_id = self._hidden_desktop_id
-            fallback_id = self._hidden_desktop_fallback_id
-            if not desktop_id:
-                return
-            from .virtual_desktop import remove_desktop
-
-            try:
-                gone = remove_desktop(desktop_id, fallback_id)
-            except Exception:
-                gone = False
-            if gone:
-                self._hidden_desktop_id = None
-                self._hidden_desktop_fallback_id = None
-
-    @staticmethod
-    def _apply_command_timeout(driver, seconds=30):
-        """Cap the Selenium HTTP wire so a frozen Edge cannot hang find/click."""
-        try:
-            executor = getattr(driver, "command_executor", None)
-            if executor is None:
-                return
-            if hasattr(executor, "set_timeout"):
-                executor.set_timeout(seconds)
-            if hasattr(executor, "_timeout"):
-                executor._timeout = seconds
-            cfg = getattr(executor, "_client_config", None) or getattr(
-                executor, "client_config", None
-            )
-            if cfg is None:
-                return
-            for attr in ("timeout", "read_timeout"):
-                if hasattr(cfg, attr):
-                    setattr(cfg, attr, seconds)
-        except Exception:
-            pass
-
-    def _remember_debug_port(self, port):
-        try:
-            port = int(port)
-        except (TypeError, ValueError):
-            return
-        ports = list(getattr(self, "_debug_ports", []) or [])
-        if port not in ports:
-            ports.append(port)
-        self._debug_ports = ports
-
-    def _remember_driver_port(self, driver):
-        caps = getattr(driver, "capabilities", None) or {}
-        for key in ("ms:edgeOptions", "goog:chromeOptions"):
-            opts = caps.get(key) or {}
-            if not isinstance(opts, dict):
-                continue
-            addr = opts.get("debuggerAddress") or ""
-            if addr and ":" in str(addr):
-                self._remember_debug_port(str(addr).rsplit(":", 1)[-1])
-                return
-
-    def _profile_json_files(self):
-        if not self.profile_path:
-            return []
-        return [
-            os.path.join(self.profile_path, "Local State"),
-            os.path.join(self.profile_path, "Default", "Preferences"),
-        ]
-
-    def _profile_json_corrupt(self):
-        """True when Chromium JSON for this account exists but does not parse."""
-        for path in self._profile_json_files():
-            if not os.path.isfile(path):
-                continue
-            try:
-                with open(path, "r", encoding="utf-8") as handle:
-                    json.load(handle)
-            except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-                return True
-        return False
-
-    def _repair_profile_json(self):
-        """Rewrite Chromium JSON that does not parse. Leave cookies in place.
-
-        A previous EdgeProfile.bak is copied back when its JSON parses.
-        That bak is never deleted. Without a bak, the broken bytes are kept
-        beside the file as .bad and the live file becomes {}.
-        """
-        if not self.profile_path:
-            return False
-        root = os.path.abspath(self.profile_path)
-        bak_root = root + ".bak"
-        repaired = False
-        for path in self._profile_json_files():
-            if not os.path.isfile(path):
-                continue
-            try:
-                with open(path, "r", encoding="utf-8") as handle:
-                    json.load(handle)
-                continue
-            except OSError:
-                continue
-            except (UnicodeError, json.JSONDecodeError, ValueError):
-                pass
-            rel = os.path.relpath(path, root)
-            bak_file = os.path.join(bak_root, rel)
-            restored = False
-            if os.path.isfile(bak_file):
-                try:
-                    with open(bak_file, "r", encoding="utf-8") as handle:
-                        payload = json.load(handle)
-                    with open(path, "w", encoding="utf-8") as handle:
-                        json.dump(payload, handle)
-                    restored = True
-                except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-                    restored = False
-            if not restored:
-                bad = path + ".bad"
-                if not os.path.exists(bad):
-                    try:
-                        shutil.copy2(path, bad)
-                    except OSError:
-                        pass
-                try:
-                    with open(path, "w", encoding="utf-8") as handle:
-                        handle.write("{}\n")
-                except OSError:
-                    continue
-            repaired = True
-        return repaired
 
     def _clear_profile_locks(self):
         """Drop Chromium singleton lock files left by a killed Edge process."""
@@ -838,37 +450,25 @@ class DriverManager:
     _KILL_FLAGS = 0x08000000 | 0x01000000 | 0x00000200
 
     @staticmethod
-    def _edge_kill_powershell(profile=None, all_accounts=False, ports=None):
-        # Only AutoRewarder account profiles — never every msedgedriver on the machine.
-        needles = []
+    def _edge_kill_powershell(profile=None, all_accounts=False):
+        needles = [
+            "--test-type=webdriver",
+            "AutoRewarder\\accounts",
+            "AutoRewarder/accounts",
+        ]
         if profile:
-            needles.append(profile)
+            needles.insert(0, profile)
         if all_accounts:
-            needles.extend(
-                [
-                    "AutoRewarder\\accounts",
-                    "AutoRewarder/accounts",
-                    "EdgeProfile",
-                ]
-            )
-        port_list = []
-        for port in ports or []:
-            try:
-                port_list.append(str(int(port)))
-            except (TypeError, ValueError):
-                pass
-        if not needles and not port_list:
-            needles = ["AutoRewarder\\accounts", "AutoRewarder/accounts"]
+            needles.append("EdgeProfile")
         lines = [
             "$needles = @("
             + ", ".join("'" + n.replace("'", "''") + "'" for n in needles)
             + ")",
-            "$ports = @(" + ", ".join(port_list) + ")",
+            "Get-Process msedgedriver -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
             "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" -ErrorAction SilentlyContinue |",
             "  Where-Object {",
             "    $cl = $_.CommandLine; if (-not $cl) { return $false }",
-            "    foreach ($n in $needles) { if ($n -and $cl -like ('*' + $n + '*')) { return $true } }",
-            "    foreach ($p in $ports) { if ($cl -like ('*--remote-debugging-port=' + $p + '*')) { return $true } }",
+            "    foreach ($n in $needles) { if ($cl -like ('*' + $n + '*')) { return $true } }",
             "    return $false",
             "  } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
         ]
@@ -895,26 +495,6 @@ class DriverManager:
         except Exception:
             pass
 
-    def _remember_driver_pid(self, driver):
-        try:
-            proc = getattr(getattr(driver, "service", None), "process", None)
-            pid = getattr(proc, "pid", None)
-            if not pid:
-                return
-            pids = list(getattr(self, "_service_pids", []) or [])
-            pids.append(int(pid))
-            self._service_pids = pids
-        except Exception:
-            pass
-
-    def _kill_tracked_drivers(self, wait=False):
-        if platform.system() != "Windows":
-            self._service_pids = []
-            return
-        for pid in list(getattr(self, "_service_pids", []) or []):
-            self._run_kill(["taskkill", "/F", "/PID", str(pid), "/T"], wait)
-        self._service_pids = []
-
     def kill_now(self, wait=False):
         """
         Kill WebDriver and this profile's Edge, including the real foreground
@@ -928,13 +508,11 @@ class DriverManager:
             for pid in list(getattr(self, "_native_pids", []) or []):
                 self._run_kill(["taskkill", "/F", "/PID", str(pid), "/T"], wait)
             self._native_pids = []
-            self._kill_tracked_drivers(wait=wait)
+            self._run_kill(["taskkill", "/F", "/IM", "msedgedriver.exe", "/T"], wait)
             profile = ""
             if self.profile_path:
                 profile = os.path.abspath(self.profile_path)
-            command = self._edge_kill_powershell(
-                profile=profile, ports=getattr(self, "_debug_ports", []) or []
-            )
+            command = self._edge_kill_powershell(profile=profile)
             self._run_kill(
                 [
                     "powershell.exe",
@@ -946,7 +524,6 @@ class DriverManager:
                 wait,
             )
         self._clear_profile_locks()
-        self.release_hidden_desktop()
 
     @classmethod
     def kill_all_autorewarder_edge(cls, wait=False):
@@ -955,6 +532,7 @@ class DriverManager:
             return
         flags = cls._KILL_FLAGS
         args_list = [
+            ["taskkill", "/F", "/IM", "msedgedriver.exe", "/T"],
             [
                 "powershell.exe",
                 "-NoProfile",
@@ -989,32 +567,50 @@ class DriverManager:
             return 0
 
         flags = 0x08000000
-        self._kill_tracked_drivers(wait=True)
-
-        profile = os.path.abspath(self.profile_path) if self.profile_path else None
-        # Kill Edge bound to this account path, plus orphans that dropped
-        # --user-data-dir but kept this session's remote-debugging-port.
-        command = self._edge_kill_powershell(
-            profile=profile, ports=getattr(self, "_debug_ports", []) or []
-        )
         try:
             subprocess.run(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    command,
-                ],
+                ["taskkill", "/F", "/IM", "msedgedriver.exe", "/T"],
                 capture_output=True,
-                text=True,
-                timeout=4,
+                timeout=3,
                 creationflags=flags,
             )
         except Exception:
             pass
+
+        if self.profile_path:
+            profile = os.path.abspath(self.profile_path).replace("'", "''")
+            # Kill: (1) Edge bound to this account profile, (2) any Selenium-
+            # launched Edge (compat-relaunch orphans often drop --user-data-dir
+            # from the command line).
+            command = (
+                f"$profile = '{profile}'; "
+                "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
+                "-ErrorAction SilentlyContinue | "
+                "Where-Object { "
+                '$_.CommandLine -like "*$profile*" -or '
+                "$_.CommandLine -like '*--test-type=webdriver*' -or "
+                "$_.CommandLine -like '*--edge-skip-compat-layer-relaunch*' "
+                "} | "
+                "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
+                "-ErrorAction SilentlyContinue }"
+            )
+            try:
+                subprocess.run(
+                    [
+                        "powershell.exe",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        command,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=4,
+                    creationflags=flags,
+                )
+            except Exception:
+                pass
         self._clear_profile_locks()
-        self.release_hidden_desktop()
         if settle:
             time.sleep(0.35)
         return 0
@@ -1031,31 +627,27 @@ class DriverManager:
         return "msedge"
 
     def debug_port(self):
-        seed = os.path.abspath(self.profile_path or "edge").encode("utf-8")
-        n = 0
-        for byte in seed:
-            n = (n * 33 + byte) & 0xFFFFFFFF
-        return 19222 + (n % 700)
+        seed = os.path.abspath(self.profile_path or "edge")
+        return 19222 + (abs(hash(seed)) % 700)
 
     def start_native_edge(self, url, port=None, stop_event=None, hide=False):
         """
         Launch a real (non-WebDriver) Edge on this account profile with a
-        debug port so we can attach. Rewards' 30-minute Edge streak only
-        credits a normal foreground Edge process.
+        debug port so we can attach. When ``hide`` is enabled, keep its
+        window off-screen and request a non-activating show state so the
+        streak cannot take focus.
         """
         from ..utils import wait_or_stop
 
         if not self.profile_path:
             raise RuntimeError("No account selected: cannot start Edge.")
+        previous_foreground = self._foreground_window()
         port = int(port or self.debug_port())
         self.close_running_edge()
         self._clear_profile_locks()
         if wait_or_stop(0.4, stop_event):
             raise RuntimeError("stopped")
         os.makedirs(self.profile_path, exist_ok=True)
-        features = ["msEdgeStartupBoost", "msEdgeSleepingTabs"]
-        if hide:
-            features.append("CalculateNativeWinOcclusion")
         args = [
             self.edge_binary(),
             f"--user-data-dir={self.profile_path}",
@@ -1063,41 +655,50 @@ class DriverManager:
             "--no-first-run",
             "--no-default-browser-check",
             "--edge-skip-compat-layer-relaunch",
-            "--disable-features=" + ",".join(features),
+            "--disable-features=msEdgeStartupBoost,msEdgeSleepingTabs",
             "--disable-background-mode",
             f"--remote-debugging-port={port}",
             "--remote-allow-origins=*",
             "--start-maximized",
+            url or "https://www.bing.com/?form=EDGNTC",
         ]
         if hide:
-            args.append("--disable-backgrounding-occluded-windows")
-        args.append(url or "https://www.bing.com/?form=EDGNTC")
-        creationflags = (
-            0x00000010 if platform.system() == "Windows" else 0
-        )  # CREATE_NEW_CONSOLE off; use DETACHED
-        # DETACHED_PROCESS (0x00000008) + CREATE_NEW_PROCESS_GROUP
+            args.insert(-1, "--window-position=-32000,-32000")
+        creationflags = 0
+        startupinfo = None
         if platform.system() == "Windows":
-            creationflags = 0x00000200  # CREATE_NEW_PROCESS_GROUP
+            # CREATE_NEW_PROCESS_GROUP keeps the browser independent from the
+            # GUI process. SW_SHOWNOACTIVATE prevents Windows from activating
+            # the new Edge window while it is being created.
+            creationflags = 0x00000200
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 4
         proc = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=creationflags,
+            startupinfo=startupinfo,
         )
         try:
             self._native_pids.append(proc.pid)
         except Exception:
             pass
-        self._remember_debug_port(port)
-        if hide:
-            self._hide_edge_on_virtual_desktop()
         if wait_or_stop(1.5, stop_event):
             try:
                 proc.kill()
             except Exception:
                 pass
-            self.release_hidden_desktop()
             raise RuntimeError("stopped")
+        # Edge may create its real top-level window slightly after the debug
+        # port becomes available. Retry briefly so a late activation cannot
+        # leave the user's desktop focused on the automation window.
+        for _ in range(8):
+            self._restore_foreground_if_edge(previous_foreground)
+            if self._foreground_window() == previous_foreground:
+                break
+            time.sleep(0.25)
         return proc, port
 
     def attach_to_edge(self, port):
@@ -1108,33 +709,4 @@ class DriverManager:
             options.binary_location = binary
         options.add_experimental_option("debuggerAddress", f"127.0.0.1:{int(port)}")
         options.add_argument("--edge-skip-compat-layer-relaunch")
-        attached = webdriver.Edge(service=self._edge_service(), options=options)
-        self._remember_debug_port(port)
-        self._remember_driver_port(attached)
-        return attached
-
-    @staticmethod
-    def focus_edge_window():
-        """Bring Edge to the foreground so Rewards counts browsing time."""
-        if platform.system() != "Windows":
-            return
-        command = (
-            "$w = New-Object -ComObject WScript.Shell; "
-            "@('Microsoft Edge','Edge','Bing','MSN') | ForEach-Object { "
-            "[void]$w.AppActivate($_) }"
-        )
-        try:
-            subprocess.run(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    command,
-                ],
-                capture_output=True,
-                timeout=2,
-                creationflags=0x08000000,
-            )
-        except Exception:
-            pass
+        return webdriver.Edge(service=self._edge_service(), options=options)

@@ -20,7 +20,6 @@ from datetime import datetime
 
 from .config import (
     GUI_DIR,
-    APP_DIR,
     REPO,
     CURRENT_VERSION,
     GITHUB_VERSION,
@@ -31,12 +30,7 @@ from .config import (
     status_path,
     stats_path,
 )
-from .utils import (
-    github_latest_release,
-    http_url_is_live,
-    release_is_newer,
-    wait_or_stop,
-)
+from .utils import github_latest_release, release_is_newer, wait_or_stop
 from .accounts import (
     AccountManager,
     AccountMetaManager,
@@ -49,7 +43,6 @@ from .stats import (
     StatsManager,
     scrape_points_balance,
     scrape_points_balance_debug,
-    derive_display_points,
     POINTS_PER_SEARCH,
     POINTS_PER_CARD,
 )
@@ -82,43 +75,6 @@ def _normalize_run_time(value):
     if isinstance(value, str) and _TIME_RE.match(value.strip()):
         return value.strip()
     return AUTOSTART_TIME
-
-
-_SETUP_EXE_NAME = "AutoRewarder-Setup.exe"
-
-
-def setup_exe_url_allowed(url):
-    """True only for this repo's https GitHub release of AutoRewarder-Setup.exe."""
-    from urllib.parse import unquote, urlparse
-
-    raw = str(url or "").strip()
-    if not raw or any(ch in raw for ch in ("\r", "\n", "\\", " ")):
-        return False
-    parsed = urlparse(raw)
-    if parsed.scheme != "https":
-        return False
-    if parsed.username or parsed.password:
-        return False
-    host = (parsed.hostname or "").lower().rstrip(".")
-    if host != "github.com":
-        return False
-    if parsed.port not in (None, 443):
-        return False
-    if parsed.query or parsed.fragment:
-        return False
-    parts = [unquote(part) for part in parsed.path.split("/") if part]
-    if len(parts) != 6:
-        return False
-    if any("/" in part or "\\" in part or part in (".", "..") for part in parts):
-        return False
-    owner, repo, releases, download, tag, name = parts
-    if (owner, repo) != tuple(REPO.split("/", 1)):
-        return False
-    if releases != "releases" or download != "download":
-        return False
-    if not tag or tag.startswith("."):
-        return False
-    return name == _SETUP_EXE_NAME
 
 
 def _windows_ui_locale():
@@ -162,7 +118,6 @@ class AutoRewarderAPI:
         self._history_window = None
         self._driver = None
         self.is_driver_loading = False
-        self._driver_loading_since = 0
         self._run_lock = threading.Lock()
         # Serializes ad-hoc balance scrapes so concurrent refreshes can't open
         # two drivers on the same Edge profile at once.
@@ -267,7 +222,7 @@ class AutoRewarderAPI:
             )
             self.stats = StatsManager(stats_path(current_id), logger=self.log)
             self.driver_manager = DriverManager(
-                profile_path=profile, hide_browser=self.hide_browser, logger=self.log
+                profile_path=profile, hide_browser=self.hide_browser
             )
             self.search_engine = SearchEngine(logger=self.log, history=self.history)
         else:
@@ -276,7 +231,7 @@ class AutoRewarderAPI:
             self.daily_set = None
             self.stats = None
             self.driver_manager = DriverManager(
-                profile_path=None, hide_browser=self.hide_browser, logger=self.log
+                profile_path=None, hide_browser=self.hide_browser
             )
             self.search_engine = SearchEngine(logger=self.log, history=None)
 
@@ -327,23 +282,6 @@ class AutoRewarderAPI:
                 "kind": "browser",
                 "message": "Wait for the browser to finish loading.",
             }
-        try:
-            if self.account_meta is not None:
-                sched = self.account_meta.get_schedule() or {}
-                if (
-                    sched.get("last_triggered_date")
-                    == datetime.now().date().isoformat()
-                ):
-                    work = self._remaining_work()
-                    if not work.get("pending"):
-                        return {
-                            "ok": False,
-                            "error": "already_done",
-                            "kind": "run",
-                            "message": "Already completed today.",
-                        }
-        except Exception:
-            pass
         return None
 
     def _login_command(self):
@@ -354,16 +292,10 @@ class AutoRewarderAPI:
         return f'"{exe}" "{entry}" --from-login'
 
     def _resync_os_hooks(self):
-        """Re-write login + scheduled-task commands to this build's exe.
-
-        launch_on_login false must delete a stale AutoRewarderGUI Run value.
-        An old portable exe otherwise re-stamps its own path on the next boot.
-        """
+        """Re-write login + scheduled-task commands to this build's exe."""
         try:
-            enabled = bool(
-                self.global_settings.get_settings().get("launch_on_login", False)
-            )
-            self._write_login_run_key(enabled)
+            if bool(self.global_settings.get_settings().get("launch_on_login", False)):
+                self._write_login_run_key(True)
         except Exception as e:
             self._safe_log(f"[WARNING] Could not refresh sign-in shortcut: {e}")
         try:
@@ -395,14 +327,6 @@ class AutoRewarderAPI:
         settings = self.global_settings.get_settings()
         pc_target = max(0, int(settings.get("queries_pc") or 0))
         mobile_target = max(0, int(settings.get("queries_mobile") or 0))
-        if self.account_meta is not None:
-            try:
-                sched = self.account_meta.get_schedule() or {}
-                if sched.get("enabled"):
-                    pc_target = max(0, int(sched.get("queries_pc") or 0))
-                    mobile_target = max(0, int(sched.get("queries_mobile") or 0))
-            except Exception:
-                pass
         today = datetime.now().date().isoformat()
         bucket = {}
         if self.stats is not None:
@@ -470,45 +394,28 @@ class AutoRewarderAPI:
             while self.is_driver_loading and waited < 90:
                 time.sleep(0.4)
                 waited += 0.4
-            accounts = [
-                acc
-                for acc in (self.account_manager.list() or [])
-                if acc.get("first_setup_done")
-            ]
-            if not accounts:
+            current = self.account_manager.get_current()
+            if not current or not current.get("first_setup_done"):
                 self.log("Sign-in run: no ready account. Closing.")
                 self._quit_after_login()
                 return
-            ran = False
-            for acc in accounts:
-                if self._manual_stop_requested:
-                    break
-                try:
-                    self.account_manager.select(acc["id"])
-                    self._rebuild_account_context()
-                except Exception as e:
-                    self.log(f"[WARNING] Sign-in skip '{acc.get('label')}': {e}")
-                    continue
-                work = self._remaining_work()
-                if not work.get("pending"):
-                    continue
-                ran = True
-                self.log(
-                    "Sign-in run: leftover for '"
-                    + str(acc.get("label") or acc["id"])
-                    + "' ("
-                    + ", ".join(work["reasons"])
-                    + ")."
-                )
-                try:
-                    if self._webview_window:
-                        self._webview_window.evaluate_js("set_running_ui(true)")
-                except Exception:
-                    pass
-                daily_only = work["pc"] == 0 and work["mobile"] == 0
-                self.main(work["pc"], work["mobile"], daily_only)
-            if not ran:
+            work = self._remaining_work()
+            if not work["pending"]:
                 self.log("Sign-in run: nothing left today. Closing.")
+                self._quit_after_login()
+                return
+            self.log(
+                "Sign-in run: starting leftover work ("
+                + ", ".join(work["reasons"])
+                + ")."
+            )
+            try:
+                if self._webview_window:
+                    self._webview_window.evaluate_js("set_running_ui(true)")
+            except Exception:
+                pass
+            daily_only = work["pc"] == 0 and work["mobile"] == 0
+            self.main(work["pc"], work["mobile"], daily_only)
         except Exception as e:
             self.log(f"[ERROR] Sign-in run failed: {e}")
         if not self._manual_stop_requested:
@@ -582,12 +489,10 @@ class AutoRewarderAPI:
             driver = self._driver
             if driver is None:
                 return
-            balance = self._available_points_from_userinfo()
-            if balance is None:
-                try:
-                    balance = scrape_points_balance(driver)
-                except Exception:
-                    balance = None
+            try:
+                balance = scrape_points_balance(driver)
+            except Exception:
+                balance = None
             if balance is not None:
                 self._persist_live_balance(account_id, balance)
             return
@@ -763,161 +668,20 @@ class AutoRewarderAPI:
     def check_updates(self):
         """Check upstream and custom PC releases without downloading anything."""
         releases = []
-        errors = []
         for kind, repo, baseline in (
             ("original", "safarsin/AutoRewarder", GITHUB_VERSION),
             ("custom", REPO, CURRENT_VERSION),
         ):
             release = github_latest_release(repo, logger=self.log)
-            if release and release.get("tag"):
+            if release:
                 release["kind"] = kind
                 release["newer"] = bool(release_is_newer(release["tag"], baseline))
                 releases.append(release)
-            else:
-                err = (
-                    (release or {}).get("error")
-                    if isinstance(release, dict)
-                    else "unavailable"
-                )
-                errors.append(
-                    {"kind": kind, "repo": repo, "error": err or "unavailable"}
-                )
-        return {
-            "ok": True,
-            "current": CURRENT_VERSION,
-            "releases": releases,
-            "errors": errors,
-        }
+        return {"ok": True, "current": CURRENT_VERSION, "releases": releases}
 
     def open_link(self, url):
         """Open a URL in the system default browser."""
-        url = str(url or "").strip()
-        if not url.lower().startswith(("http://", "https://")):
-            return False
         webbrowser.open(url)
-        return True
-
-    def open_update_asset(self, url):
-        """Open the installer only if GitHub still has the file."""
-        url = str(url or "").strip()
-        if not url.lower().startswith(("http://", "https://")):
-            return {"ok": False, "error": "bad_url"}
-        if not http_url_is_live(url):
-            return {"ok": False, "error": "missing"}
-        webbrowser.open(url)
-        return {"ok": True}
-
-    def install_setup_update(self, url):
-        """Download AutoRewarder-Setup.exe from this repo and launch it.
-
-        Any other host or filename is refused. The local file is what runs;
-        the URL is never passed to the shell.
-        """
-        url = str(url or "").strip()
-        if not setup_exe_url_allowed(url):
-            return {"ok": False, "error": "refused"}
-        dest_dir = os.path.join(APP_DIR, "updates")
-        dest = os.path.join(dest_dir, _SETUP_EXE_NAME)
-        tmp = dest + ".part"
-        try:
-            os.makedirs(dest_dir, exist_ok=True)
-            self._download_setup_exe(url, tmp)
-            os.replace(tmp, dest)
-        except Exception as e:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            self._safe_log(f"[WARNING] Setup download failed: {e}")
-            return {"ok": False, "error": "missing"}
-        if not self._launch_setup_exe(dest):
-            return {"ok": False, "error": "launch_failed"}
-        self._safe_log("Launching AutoRewarder-Setup.exe and closing this app.")
-        threading.Thread(
-            target=self._exit_after_setup_launch, daemon=True, name="setup-exit"
-        ).start()
-        return {"ok": True}
-
-    def _download_setup_exe(self, url, tmp_path):
-        import urllib.error
-        import urllib.request
-
-        class _HttpsRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                if not str(newurl or "").lower().startswith("https://"):
-                    raise urllib.error.URLError("refused redirect")
-                return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-        opener = urllib.request.build_opener(_HttpsRedirect)
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "AutoRewarder",
-                "Accept": "application/octet-stream",
-            },
-        )
-        max_bytes = 800 * 1024 * 1024
-        total = 0
-        with opener.open(req, timeout=60) as resp:
-            final = str(resp.geturl() or "")
-            if not final.lower().startswith("https://"):
-                raise urllib.error.URLError("refused")
-            status = int(getattr(resp, "status", None) or resp.getcode() or 0)
-            if status not in (200, 206):
-                raise urllib.error.URLError(f"status {status}")
-            with open(tmp_path, "wb") as out:
-                while True:
-                    chunk = resp.read(256 * 1024)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise urllib.error.URLError("too_large")
-                    out.write(chunk)
-                out.flush()
-                os.fsync(out.fileno())
-        if total < 64 * 1024:
-            raise urllib.error.URLError("too_small")
-        with open(tmp_path, "rb") as fh:
-            if fh.read(2) != b"MZ":
-                raise urllib.error.URLError("not_exe")
-
-    def _launch_setup_exe(self, path):
-        """ShellExecute the local setup exe. Never a URL."""
-        if platform.system() != "Windows":
-            return False
-        updates = os.path.abspath(os.path.join(APP_DIR, "updates"))
-        target = os.path.abspath(path)
-        if os.path.basename(target) != _SETUP_EXE_NAME:
-            return False
-        if os.path.dirname(target) != updates or not os.path.isfile(target):
-            return False
-        import ctypes
-
-        rc = ctypes.windll.shell32.ShellExecuteW(
-            None,
-            "open",
-            target,
-            "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-            None,
-            1,
-        )
-        return int(rc) > 32
-
-    def _exit_after_setup_launch(self):
-        """Leave so Inno can replace this exe."""
-        time.sleep(0.6)
-        try:
-            self.shutdown()
-        except Exception:
-            pass
-        window = self._webview_window
-        if window is not None:
-            try:
-                window.destroy()
-            except Exception:
-                pass
-        os._exit(0)
 
     def load_driver_in_background(self):
         """Warmup the WebDriver download, only if an account is selected."""
@@ -928,7 +692,6 @@ class AutoRewarderAPI:
             return
 
         self.is_driver_loading = True
-        self._driver_loading_since = time.time()
         try:
             warmup_driver = self.driver_manager.setup_driver(headless=True)
             try:
@@ -952,16 +715,11 @@ class AutoRewarderAPI:
                 pass
         finally:
             self.is_driver_loading = False
-            self._driver_loading_since = 0
             if self._webview_window:
                 self._webview_window.evaluate_js("stop_loader()")
 
     def check_driver_status(self):
         """Return True while the driver warmup thread is active."""
-        if self.is_driver_loading and self._driver_loading_since:
-            if time.time() - self._driver_loading_since > 90:
-                self.is_driver_loading = False
-                self._driver_loading_since = 0
         return self.is_driver_loading
 
     # ------------------------------------------------------------------
@@ -970,8 +728,7 @@ class AutoRewarderAPI:
 
     def get_settings(self):
         """Return global settings (hide_browser, current_account_id, schema_version)."""
-        data = dict(self.global_settings.get_settings())
-        data.pop("llm_api_key", None)
+        data = self.global_settings.get_settings()
         data["app_version"] = CURRENT_VERSION
         data["windows_locale"] = _windows_ui_locale()
         data["ui_locale"] = self.ui_locale()
@@ -1116,15 +873,11 @@ class AutoRewarderAPI:
         """
         Return the LLM query-generation config plus the effective locale.
 
-        The raw API key stays on disk. Callers only learn whether one is saved.
-
         Returns:
-            dict: use_llm_queries, llm_provider, llm_model, has_llm_key,
+            dict: use_llm_queries, llm_provider, llm_model, llm_api_key,
             search_locale, detected_locale, effective_locale.
         """
-        cfg = dict(self.global_settings.get_llm_config())
-        stored = str(cfg.pop("llm_api_key", "") or "").strip()
-        cfg["has_llm_key"] = bool(stored)
+        cfg = self.global_settings.get_llm_config()
         cfg["effective_locale"] = self.global_settings.get_effective_locale()
         return cfg
 
@@ -1169,35 +922,6 @@ class AutoRewarderAPI:
     def is_running(self):
         """True when the bot is mid-run. Used by the headless runner to avoid overlap."""
         return self._run_lock.locked()
-
-    def start_run(self, pc_count, mobile_count=0, daily_only=False):
-        """Kick off main() on a worker thread so pywebview Stop/settings stay live."""
-        reason = self.start_block_reason()
-        if reason:
-            payload = dict(reason)
-            payload["started"] = False
-            return payload
-        try:
-            if self.account_meta is not None:
-                sched = self.account_meta.get_schedule() or {}
-                if (
-                    sched.get("last_triggered_date")
-                    == datetime.now().date().isoformat()
-                ):
-                    leftover = self._remaining_work()
-                    if leftover.get("pending"):
-                        pc_count = leftover["pc"]
-                        mobile_count = leftover["mobile"]
-                        daily_only = leftover["pc"] == 0 and leftover["mobile"] == 0
-        except Exception:
-            pass
-        threading.Thread(
-            target=self.main,
-            args=(pc_count, mobile_count, daily_only),
-            daemon=True,
-            name="bot-run",
-        ).start()
-        return {"ok": True, "started": True}
 
     def _quit_driver(self):
         """
@@ -1269,18 +993,18 @@ class AutoRewarderAPI:
     def shutdown(self):
         """Stop a run and kill Edge / tunnel when the window actually closes."""
         try:
-            from .utils import clear_gui_lock
-
-            clear_gui_lock()
-        except Exception:
-            pass
-        try:
             self.stop()
         except Exception:
             pass
         try:
             if self.driver_manager is not None:
                 self.driver_manager.kill_now(wait=True)
+        except Exception:
+            pass
+        try:
+            from .emulator.driver import DriverManager
+
+            DriverManager.kill_all_autorewarder_edge(wait=True)
         except Exception:
             pass
         try:
@@ -1392,9 +1116,8 @@ class AutoRewarderAPI:
                 0, min(99, int(_pick("queries_mobile", current["queries_mobile"])))
             ),
             "run_time": _normalize_run_time(_pick("run_time", current.get("run_time"))),
-            "last_triggered_date": current.get("last_triggered_date"),
-            "last_attempt_date": current.get("last_attempt_date"),
-            "last_success_date": current.get("last_success_date"),
+            # Reset the daily-dedup marker so the edited schedule can still fire today.
+            "last_triggered_date": None,
         }
         meta.set_schedule(new)
 
@@ -1482,7 +1205,6 @@ class AutoRewarderAPI:
                 result = subprocess.run(
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
-                    timeout=20,
                     creationflags=0x08000000,
                 )
                 if result.returncode == 0:
@@ -1694,7 +1416,6 @@ class AutoRewarderAPI:
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
                     text=True,
-                    timeout=20,
                     creationflags=0x08000000,
                 )
                 if q.returncode == 0:
@@ -1708,7 +1429,6 @@ class AutoRewarderAPI:
                         ],
                         capture_output=True,
                         text=True,
-                        timeout=20,
                         creationflags=0x08000000,
                     )
                     if d.returncode == 0:
@@ -1747,7 +1467,6 @@ class AutoRewarderAPI:
                             f"{_SYSTEMD_UNIT_NAME}.timer",
                         ],
                         capture_output=True,
-                        timeout=20,
                     )
                 except Exception:
                     pass
@@ -1765,7 +1484,6 @@ class AutoRewarderAPI:
                     subprocess.run(
                         ["systemctl", "--user", "daemon-reload"],
                         capture_output=True,
-                        timeout=20,
                     )
                 except Exception:
                     pass
@@ -1796,8 +1514,7 @@ class AutoRewarderAPI:
         it, Windows silently skips a trigger that fired while the machine
         was off (unlike systemd's Persistent=true). With it, the task
         runs as soon as possible after the missed time at the next boot —
-        matching the Linux behavior. Queue (not IgnoreNew) so a long
-        advanced run cannot drop the next day's trigger.
+        matching the Linux behavior.
 
         Also: <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
         so laptop users on battery still get their run.
@@ -1840,17 +1557,17 @@ class AutoRewarderAPI:
             "    </Principal>\n"
             "  </Principals>\n"
             "  <Settings>\n"
-            "    <MultipleInstancesPolicy>Queue</MultipleInstancesPolicy>\n"
+            "    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n"
             "    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n"
             "    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"
             "    <AllowHardTerminate>true</AllowHardTerminate>\n"
-            "    <StartWhenAvailable>true</StartWhenAvailable>\n"
+            "    <StartWhenAvailable>false</StartWhenAvailable>\n"
             "    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\n"
             "    <AllowStartOnDemand>true</AllowStartOnDemand>\n"
             "    <Enabled>true</Enabled>\n"
             "    <Hidden>false</Hidden>\n"
             "    <RunOnlyIfIdle>false</RunOnlyIfIdle>\n"
-            "    <WakeToRun>true</WakeToRun>\n"
+            "    <WakeToRun>false</WakeToRun>\n"
             "    <ExecutionTimeLimit>PT72H</ExecutionTimeLimit>\n"
             "    <Priority>7</Priority>\n"
             "  </Settings>\n"
@@ -1900,7 +1617,6 @@ class AutoRewarderAPI:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=20,
                 creationflags=0x08000000,
             )
             if result.returncode != 0:
@@ -1937,7 +1653,6 @@ class AutoRewarderAPI:
                     "/F",
                 ],
                 capture_output=True,
-                timeout=20,
                 creationflags=0x08000000,
             )
             return True
@@ -1979,15 +1694,12 @@ class AutoRewarderAPI:
                 fh.write(timer_file)
 
             subprocess.run(
-                ["systemctl", "--user", "daemon-reload"],
-                capture_output=True,
-                timeout=20,
+                ["systemctl", "--user", "daemon-reload"], capture_output=True
             )
             result = subprocess.run(
                 ["systemctl", "--user", "enable", "--now", timer_unit],
                 capture_output=True,
                 text=True,
-                timeout=20,
             )
             if result.returncode != 0:
                 self.log(
@@ -2016,7 +1728,6 @@ class AutoRewarderAPI:
             subprocess.run(
                 ["systemctl", "--user", "disable", "--now", timer_unit],
                 capture_output=True,
-                timeout=20,
             )
             for path in (service_path, timer_path):
                 if os.path.exists(path):
@@ -2025,9 +1736,7 @@ class AutoRewarderAPI:
                     except OSError:
                         pass
             subprocess.run(
-                ["systemctl", "--user", "daemon-reload"],
-                capture_output=True,
-                timeout=20,
+                ["systemctl", "--user", "daemon-reload"], capture_output=True
             )
             return True
         except Exception:
@@ -2279,12 +1988,7 @@ class AutoRewarderAPI:
 
     def send_phone_job(self, kind):
         """Queue checkin/news for the linked phone. Returns immediately."""
-        from .phone_bridge import PHONE_JOB_KINDS
-
-        kind = str(kind or "checkin")
-        if kind not in PHONE_JOB_KINDS:
-            return {"ok": False, "error": "unknown_job"}
-        job_id = self._phone_bridge().enqueue(kind)
+        job_id = self._phone_bridge().enqueue(str(kind or "checkin"))
         if not job_id:
             return {"ok": False, "error": "no phone linked or phone offline"}
         self.log(f"Queued '{kind}' for the linked phone.")
@@ -2295,13 +1999,7 @@ class AutoRewarderAPI:
         from .phone_bridge import get_bridge
 
         bridge = get_bridge()
-        if bridge is None:
-            return None
-        if not bridge.phones_for_jobs():
-            self.log(
-                f"Phone {kind}: no heartbeat in the last 15 min — "
-                "not waiting 180s on a dead link."
-            )
+        if bridge is None or not bridge._online_phones():
             return None
         return bridge.request_and_wait(kind, timeout=timeout)
 
@@ -2586,17 +2284,10 @@ class AutoRewarderAPI:
   (top-right on Bing) and choose 'Sign in with a different account'.
 - Close the browser when you're done.""")
 
-            setup_deadline = time.monotonic() + 900
             while len(setup_driver.window_handles) > 0:
-                if time.monotonic() >= setup_deadline:
-                    self.log(
-                        "[ERROR] First Setup timed out waiting for the browser to close."
-                    )
-                    setup_succeeded = False
-                    break
                 time.sleep(1)
-            else:
-                setup_succeeded = True
+
+            setup_succeeded = True
 
         except Exception as e:
             error_msg = str(e).lower()
@@ -2650,20 +2341,59 @@ class AutoRewarderAPI:
     def get_stats(self):
         """
         Return the current account's statistics for the dashboard, augmented
-        with derived fields the UI displays directly:
+        with a couple of derived convenience fields the UI displays directly:
 
-          * total_points — scraped / getuserinfo balance, or None (UI shows —).
-          * today_points — end_balance - start_balance for today, or None.
+          * total_points — the real scraped balance when available, else the
+            cumulative estimate. `is_estimate` flags which one it is.
+          * session_points — points earned in the last recorded run: the real
+            balance delta when available, otherwise the activity estimate.
 
-        POINTS_PER_* never fills either field. Returns None when no account
-        is selected.
+        Returns None when no account is selected.
         """
         if self.stats is None:
             return None
         data = self._with_inflight_stats(self.stats.get_stats())
-        data["derived"] = derive_display_points(data)
 
-        # Kept for the dashboard debug chart of activity, not the hero total.
+        balance = data["balance"]["current"]
+        last = data["last_session"]
+        is_estimate = balance is None
+        estimate_total = data["lifetime"]["points_estimate"]
+        total_points = balance if balance is not None else estimate_total
+
+        ended_at = last.get("ended_at")
+        today = datetime.now().date().isoformat()
+        bucket = (data.get("daily") or {}).get(today) or {}
+        today_est = (
+            int(bucket.get("pc") or 0) + int(bucket.get("mobile") or 0)
+        ) * POINTS_PER_SEARCH + (
+            int(bucket.get("cards") or 0)
+            + int(bucket.get("earn") or 0)
+            + int(bucket.get("quests") or 0)
+        ) * POINTS_PER_CARD
+        start_bal = bucket.get("start_balance")
+        end_bal = balance if isinstance(balance, int) else bucket.get("end_balance")
+        if isinstance(start_bal, int) and isinstance(end_bal, int):
+            today_points = int(end_bal) - int(start_bal)
+            today_is_estimate = False
+        elif bucket.get("points_delta") is not None:
+            today_points = int(bucket.get("points_delta") or 0)
+            today_is_estimate = False
+        else:
+            today_points = int(bucket.get("points_estimate") or today_est)
+            today_is_estimate = True
+        data["derived"] = {
+            "total_points": total_points,
+            "is_estimate": is_estimate,
+            "session_points": today_points,
+            "session_is_estimate": today_is_estimate,
+            "last_run_at": ended_at,
+            "last_run_date": today,
+            "today_points": today_points,
+            "today_is_estimate": today_is_estimate,
+        }
+
+        # Per-item point values, so the dashboard can split a day's bar into
+        # searches vs daily without hard-coding the constants.
         data["constants"] = {
             "points_per_search": POINTS_PER_SEARCH,
             "points_per_card": POINTS_PER_CARD,
@@ -2687,8 +2417,12 @@ class AutoRewarderAPI:
                 {
                     "id": acc["id"],
                     "label": acc["label"],
-                    "total_points": (balance if isinstance(balance, int) else None),
-                    "is_estimate": not isinstance(balance, int),
+                    "total_points": (
+                        balance
+                        if balance is not None
+                        else stats["lifetime"]["points_estimate"]
+                    ),
+                    "is_estimate": balance is None,
                     "lifetime_runs": stats["lifetime"]["runs"],
                     "pc_searches": stats["lifetime"]["pc_searches"],
                     "mobile_searches": stats["lifetime"]["mobile_searches"],
@@ -2950,8 +2684,8 @@ class AutoRewarderAPI:
             "account": {"id": account_id},
             "profile": profile,
             "estimate": {
-                "search_points": None,
-                "note": "Balance comes from scrape / getuserinfo, never POINTS_PER_*.",
+                "search_points": (pc_target + mobile_target) * POINTS_PER_SEARCH,
+                "note": "Search estimate only; Daily tasks and promotions vary by account.",
             },
             "progress": {
                 "pc": self._progress_from_frac(
@@ -3007,12 +2741,7 @@ class AutoRewarderAPI:
         if not live:
             live = self.account_meta.get_live_manual_tasks()
         return {
-            "tasks": list_tasks(
-                prefs["ignored"],
-                prefs["removed"],
-                live,
-                lang=self.ui_locale(),
-            ),
+            "tasks": list_tasks(prefs["ignored"], prefs["removed"], live),
             "ignored": prefs["ignored"],
             "removed": prefs["removed"],
         }
@@ -3051,53 +2780,11 @@ class AutoRewarderAPI:
         try:
             if url.startswith("ms-settings:"):
                 os.startfile(url)
-            elif url.lower().startswith(("http://", "https://")):
-                self._open_in_account_edge(url)
             else:
-                return {"ok": False, "error": "bad_url"}
+                webbrowser.open(url)
             return {"ok": True, "url": url}
         except Exception as e:
             return {"ok": False, "error": str(e)}
-
-    def _open_in_account_edge(self, url):
-        """Open a For you link in this account's Edge, on the current desktop."""
-        aid = self.account_manager.current_id()
-        profile = edge_profile_path(aid) if aid else ""
-        edge = ""
-        try:
-            edge = self.driver_manager.edge_binary()
-        except Exception:
-            edge = ""
-        if not edge or not profile or not os.path.isdir(profile):
-            webbrowser.open(url)
-            return
-        popen_kwargs = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-        }
-        if platform.system() == "Windows":
-            popen_kwargs["creationflags"] = 0x00000200
-        subprocess.Popen(
-            [
-                edge,
-                f"--user-data-dir={profile}",
-                "--profile-directory=Default",
-                url,
-            ],
-            **popen_kwargs,
-        )
-        if platform.system() != "Windows":
-            return
-        time.sleep(0.8)
-        try:
-            from .emulator.virtual_desktop import (
-                edge_hwnds,
-                move_windows_to_current,
-            )
-
-            move_windows_to_current(edge_hwnds(profile, ()))
-        except Exception as e:
-            self._safe_log(f"[WARNING] For you stayed on its current desktop: {e}")
 
     def _fetch_balance_with_driver(self, driver, attempts=8):
         """
@@ -3143,14 +2830,6 @@ class AutoRewarderAPI:
             time.sleep(2.5)
 
             for _ in range(attempts):
-                try:
-                    from .dailytasks.rewards_api import fetch_userinfo, parse_userinfo
-
-                    pts = parse_userinfo(fetch_userinfo(driver)).get("available_points")
-                    if isinstance(pts, int) and pts >= 0:
-                        return pts
-                except Exception:
-                    pass
                 info = scrape_points_balance_debug(driver)
                 self._last_balance_debug = info
                 value = info.get("value")
@@ -3440,7 +3119,7 @@ class AutoRewarderAPI:
         if not self._stop_event.is_set() and pc_left <= 0 and mobile_left <= 0:
             self.log("Advanced schedule completed!")
 
-    def main(self, pc_count, mobile_count=0, daily_only=False, stamp_schedule=True):
+    def main(self, pc_count, mobile_count=0, daily_only=False):
         """
         Run the bot against the currently-selected account.
 
@@ -3458,20 +3137,18 @@ class AutoRewarderAPI:
             pc_count (int): how many searches to do in the PC phase (ignored if daily_only)
             mobile_count (int): how many searches to do in the Mobile phase (ignored if daily_only)
             daily_only (bool): whether to skip searches and just run the Daily Set
-            stamp_schedule (bool): write last_triggered_date on Done (False for CLI batches).
-                False runs this batch's counts once and does not enter advanced pacing.
         """
         if self.account_manager.current_id() is None:
             self.log("[ERROR] No account selected. Add one via the dropdown.")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
-            return False
+            return
 
         if self.account_meta is None or not self.account_meta.is_first_setup_done():
             self.log("[ERROR] First Setup has not been completed for this account.")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
-            return False
+            return
 
         daily_only = bool(daily_only)
 
@@ -3492,12 +3169,10 @@ class AutoRewarderAPI:
                 schedule = {}
 
         schedule_enabled = isinstance(schedule, dict) and bool(schedule.get("enabled"))
-        # CLI batches pass stamp_schedule=False and already pace themselves.
         use_advanced = (
             not daily_only
             and schedule_enabled
             and bool(schedule.get("advancedScheduling"))
-            and stamp_schedule
         )
 
         if (
@@ -3512,34 +3187,17 @@ class AutoRewarderAPI:
 
         if not self._run_lock.acquire(blocking=False):
             self.log("[WARNING] A run is already in progress.")
-            if self._webview_window:
-                try:
-                    self._webview_window.evaluate_js("enable_start_button()")
-                except Exception:
-                    pass
-            return False
+            return
 
         seq = self._run_seq
         self._stop_event.clear()
-        if stamp_schedule and self.account_meta is not None:
-            try:
-                from datetime import date as _date
-
-                attempt = self.account_meta.get_schedule() or {}
-                if isinstance(attempt, dict):
-                    attempt["last_attempt_date"] = _date.today().isoformat()
-                    self.account_meta.set_schedule(attempt)
-            except Exception:
-                pass
         if seq != self._run_seq:
             try:
                 self._run_lock.release()
             except Exception:
                 pass
             self._safe_log("Stopped before start.")
-            return False
-
-        completed = False
+            return
 
         # Reset per-run stats accumulators. _run_phase / _run_daily_only feed
         # these; _record_session_stats() folds them into stats.json at the end.
@@ -3599,20 +3257,14 @@ class AutoRewarderAPI:
                     self._run_advanced_schedule(pc_count, mobile_count, duration, qph)
                 else:
                     if pc_count > 0 and not self._stop_event.is_set():
-                        try:
-                            self._run_phase(
-                                mobile=False, count=pc_count, do_daily_set=False
-                            )
-                        except Exception as e:
-                            self.log(f"[ERROR] PC phase failed: {e}")
+                        self._run_phase(
+                            mobile=False, count=pc_count, do_daily_set=False
+                        )
 
                     if mobile_count > 0 and not self._stop_event.is_set():
-                        try:
-                            self._run_phase(
-                                mobile=True, count=mobile_count, do_daily_set=False
-                            )
-                        except Exception as e:
-                            self.log(f"[ERROR] Mobile phase failed: {e}")
+                        self._run_phase(
+                            mobile=True, count=mobile_count, do_daily_set=False
+                        )
 
                     # Always verify dashboard items after searches. Each function
                     # logs skip vs run from the live page (not status.json alone).
@@ -3627,27 +3279,19 @@ class AutoRewarderAPI:
                 self.log("Stopped.")
             else:
                 self.log("Done!")
-                completed = True
 
-                if stamp_schedule and self.account_meta is not None:
+                if self.account_meta is not None:
                     try:
                         from datetime import date
 
                         current_schedule = self.account_meta.get_schedule()
                         if isinstance(current_schedule, dict):
-                            today = date.today().isoformat()
-                            current_schedule["last_triggered_date"] = today
-                            current_schedule["last_success_date"] = today
+                            current_schedule["last_triggered_date"] = (
+                                date.today().isoformat()
+                            )
                             self.account_meta.set_schedule(current_schedule)
                     except Exception as e:
                         self.log(f"[WARNING] Failed to update deduplication date: {e}")
-        except Exception as e:
-            self.log(f"[ERROR] Run failed: {e}")
-            try:
-                if self.history is not None:
-                    self.history.add_to_history("Run", "[ERROR] " + str(e)[:80])
-            except Exception:
-                pass
         finally:
             # Persist this run's activity + balance before unlocking, so a
             # GUI refresh triggered by enable_start_button() reads fresh stats.
@@ -3657,81 +3301,23 @@ class AutoRewarderAPI:
                     self._webview_window.evaluate_js("enable_start_button()")
             except Exception:
                 pass
-            try:
-                self._run_lock.release()
-            except Exception:
-                pass
-        return completed
+            self._run_lock.release()
 
     def _try_scrape_balance(self):
         """
-        Best-effort read of the real points balance from getuserinfo, then
-        the DOM. Only updates `_last_scraped_balance` on a successful read,
-        so a later SERP miss never clobbers a good value.
+        Best-effort read of the real points balance from the page the active
+        driver is currently on. Only updates `_last_scraped_balance` on a
+        successful read, so a later SERP miss never clobbers a good value
+        scraped earlier from the rewards dashboard.
         """
         if self._driver is None:
             return
-        value = self._available_points_from_userinfo()
-        if value is None:
-            try:
-                value = scrape_points_balance(self._driver, self.log)
-            except Exception:
-                value = None
+        try:
+            value = scrape_points_balance(self._driver, self.log)
+        except Exception:
+            value = None
         if value is not None:
             self._last_scraped_balance = value
-
-    def _available_points_from_userinfo(self):
-        """getuserinfo.availablePoints, or None. Does not navigate."""
-        if self._driver is None:
-            return None
-        try:
-            from .dailytasks.rewards_api import fetch_userinfo, parse_userinfo
-
-            pts = parse_userinfo(fetch_userinfo(self._driver)).get("available_points")
-        except Exception:
-            return None
-        if isinstance(pts, int) and pts >= 0:
-            return pts
-        return None
-
-    def _search_cap_hit(self, mobile, after_n=0, navigate=False):
-        """True when getuserinfo says this device's daily search counter is full."""
-        if self._driver is None:
-            return False
-        from .dailytasks.rewards_api import (
-            fetch_userinfo,
-            parse_userinfo,
-            counter_complete,
-        )
-
-        kind = "mobile" if mobile else "pc"
-        should_nav = navigate or after_n == 1 or (after_n > 0 and after_n % 5 == 0)
-        if should_nav:
-            try:
-                self._driver.get("https://rewards.bing.com/")
-            except Exception:
-                pass
-        try:
-            parsed = parse_userinfo(fetch_userinfo(self._driver))
-        except Exception:
-            parsed = {}
-        pts = parsed.get("available_points")
-        if isinstance(pts, int) and pts >= 0:
-            self._last_scraped_balance = pts
-            try:
-                if self.stats is not None:
-                    self.stats.update_balance(pts)
-                    self._notify_stats_refresh()
-            except Exception:
-                pass
-        if counter_complete(parsed, kind):
-            pair = parsed.get(kind)
-            self.log(
-                f"{kind} search cap reached ({pair[0]}/{pair[1]}) — "
-                "stopping remaining queries."
-            )
-            return True
-        return False
 
     def _record_session_stats(self):
         """
@@ -3780,14 +3366,10 @@ class AutoRewarderAPI:
                 f"{newly} new card(s)",
             )
         claim = live.get("claim")
-        if not isinstance(claim, int):
-            claim = totals.get("claim_left")
         if isinstance(claim, int) and claim > 0:
             self._report("Ready to claim", False, f"{claim} still pending")
-        elif isinstance(claim, int) and claim == 0:
-            self._report("Ready to claim", True, "nothing pending")
         else:
-            self._report("Ready to claim", False, "amount unread, not treated as 0")
+            self._report("Ready to claim", True, "nothing pending")
         earn = int(totals.get("earn") or 0)
         self._report(
             "More activities",
@@ -3795,27 +3377,11 @@ class AutoRewarderAPI:
             f"{earn} opened",
         )
         quests = int(totals.get("quests") or 0)
-        left = int(totals.get("quests_left") or 0)
-        if totals.get("quests_error"):
-            self._report(
-                "Punchcards",
-                False,
-                "task list did not render" + (f", {left} still open" if left else ""),
-            )
-        elif left > 0:
-            self._report(
-                "Punchcards",
-                False,
-                (
-                    f"{quests} verified, {left} still open"
-                    if quests
-                    else f"{left} still open"
-                ),
-            )
-        elif quests:
-            self._report("Punchcards", True, f"{quests} task(s) verified")
-        else:
-            self._report("Punchcards", "skip", "none open")
+        self._report(
+            "Punchcards",
+            True if quests else "skip",
+            f"{quests} task(s) opened",
+        )
 
     def _report(self, name, ok, detail=""):
         """Log a step and append it to Execution history (OK / Skipped / ERROR)."""
@@ -4009,12 +3575,8 @@ class AutoRewarderAPI:
                     if self.history is not None:
                         self.history.add_activity("Daily tasks: set", "Stopped by user")
                     return
-                live_now = getattr(self.daily_set, "live_progress", {}) or {}
-                still_open = self.daily_set.day_still_open(live_now, totals)
-                if success and remaining == 0 and not still_open:
-                    if self.daily_set.mark_as_completed() is False:
-                        still_open = True
-                if success and remaining == 0 and not still_open:
+                if success and remaining == 0:
+                    self.daily_set.mark_as_completed()
                     self.log("Daily tasks completed and marked as done for today.")
                     if self.history is not None:
                         completed = int(totals.get("newly", 0) or 0)
@@ -4022,27 +3584,14 @@ class AutoRewarderAPI:
                             "Daily tasks: set",
                             f"Success ({completed} new task{'s' if completed != 1 else ''})",
                         )
-                elif remaining or still_open:
-                    why = []
-                    if remaining:
-                        why.append(f"{remaining} card(s)")
-                    claim = live_now.get("claim")
-                    if isinstance(claim, int) and claim > 0:
-                        why.append(f"claim {claim}")
-                    left = int(totals.get("quests_left") or 0)
-                    if left:
-                        why.append(f"{left} punchcard(s)")
+                elif remaining:
                     self.log(
-                        "Daily tasks partial: "
-                        + (", ".join(why) if why else "claim/punchcards still open")
-                        + ". Not marking the day done."
+                        f"Daily tasks partial: {remaining} card(s) still incomplete. "
+                        "They will be retried automatically."
                     )
                     if self.history is not None:
                         self.history.add_activity(
-                            "Daily tasks: set",
-                            "Partial ("
-                            + (", ".join(why) if why else "still open")
-                            + ")",
+                            "Daily tasks: set", f"Partial ({remaining} remaining)"
                         )
                 else:
                     self.log("Daily tasks failed. Not marked as done for today.")
@@ -4062,92 +3611,6 @@ class AutoRewarderAPI:
         finally:
             self._quit_driver()
 
-    def _verify_phone_bing_counters(self, tasks, phone_checkin, phone_news):
-        """Re-read getuserinfo after a phone ok. Never mark from the detail text."""
-        from .dailytasks.rewards_api import fetch_userinfo, parse_userinfo
-
-        parsed = None
-        self._driver = None
-        try:
-            self._driver = self.driver_manager.setup_driver(
-                mobile=True,
-                bing_app=True,
-                market=getattr(tasks, "market", None),
-            )
-            try:
-                tasks._safe_get(self._driver, "https://rewards.bing.com/dashboard")
-            except Exception:
-                pass
-            raw = fetch_userinfo(self._driver)
-            if isinstance(raw, dict):
-                parsed = parse_userinfo(raw)
-        except Exception as e:
-            if self._stop_event.is_set():
-                self.log("Stopped.")
-            else:
-                self.log(f"[WARNING] getuserinfo re-read failed: {e}")
-            parsed = None
-        finally:
-            self._quit_driver()
-        self._apply_verified_phone_counter(
-            phone_checkin,
-            parsed,
-            "checkin",
-            "[7/8] Mobile check-in",
-            "Check-in",
-            self.daily_set.mark_checkin_as_completed,
-        )
-        self._apply_verified_phone_counter(
-            phone_news,
-            parsed,
-            "news",
-            "[8/8] News",
-            "News",
-            self.daily_set.mark_news_as_completed,
-        )
-
-    def _apply_verified_phone_counter(
-        self, phone_result, parsed, key, log_prefix, report_name, mark
-    ):
-        from .dailytasks.rewards_api import counter_complete
-
-        if not isinstance(phone_result, dict) or not phone_result.get("ok"):
-            return
-        parsed = parsed if isinstance(parsed, dict) else {}
-        pair = parsed.get(key)
-        done = total = 0
-        live = False
-        if isinstance(pair, (list, tuple)) and len(pair) == 2:
-            try:
-                done, total = int(pair[0]), int(pair[1])
-                live = total > 0
-            except (TypeError, ValueError):
-                live = False
-        if live and counter_complete(parsed, key):
-            try:
-                mark()
-            except Exception:
-                pass
-            try:
-                self.daily_set.save_live_snapshot({key: [done, total]})
-            except Exception:
-                pass
-            self.log(f"{log_prefix} — live counter {done}/{total}.")
-            self._report(report_name, True, f"{done}/{total}")
-        elif not live:
-            self.log(
-                f"{log_prefix} — phone reported success but the result is "
-                "unverified (no live getuserinfo counter). Not marking done."
-            )
-            self._report(report_name, "skip", "unverified")
-        else:
-            self.log(
-                f"{log_prefix} — live counter {done}/{total} is not complete. "
-                "Not marking done."
-            )
-            self._report(report_name, "skip", f"{done}/{total}")
-        self._notify_progress()
-
     def _run_bing_app_tasks(self):
         """
         Verify check-in / news / Bing-app streak against the live dashboard,
@@ -4156,31 +3619,22 @@ class AutoRewarderAPI:
         if self.daily_set is None or self.driver_manager is None:
             return
 
-        from .dailytasks.bing_app import BingAppTasks, news_unoffered_detail
-        from .search.locale import bing_app_market
+        from .dailytasks.bing_app import BingAppTasks
 
         self.log("=== [7/8] + [8/8] Mobile app — verifying live counters ===")
-        settings = {}
-        profile = {}
-        try:
-            settings = self.global_settings.get_settings() or {}
-        except Exception:
-            settings = {}
-        try:
-            if self.account_meta is not None:
-                profile = self.account_meta.get_rewards_profile() or {}
-        except Exception:
-            profile = {}
-        market = bing_app_market(settings, profile)
-        tasks = BingAppTasks(logger=self.log, market=market)
-        # BingTasks on the phone waits up to 90s. This wait has to cover that.
-        phone_checkin = self._phone_try("checkin", timeout=180)
+        tasks = BingAppTasks(logger=self.log)
+        phone_checkin = self._phone_try("checkin", timeout=90)
         if phone_checkin is not None:
             if phone_checkin.get("ok"):
-                self.log(
-                    "[7/8] Mobile check-in — phone reported success. "
-                    "Not marking done until getuserinfo shows a live counter."
+                self.log("[7/8] Mobile check-in — completed on the linked phone.")
+                self.daily_set.mark_checkin_as_completed()
+                self._report(
+                    "Check-in", True, phone_checkin.get("detail") or "by phone"
                 )
+                try:
+                    self.daily_set.save_live_snapshot({"checkin": [1, 1]})
+                except Exception:
+                    pass
             else:
                 self.log(
                     "[7/8] Mobile check-in — phone did not finish: "
@@ -4192,13 +3646,12 @@ class AutoRewarderAPI:
                     phone_checkin.get("detail") or "phone job failed",
                 )
             self._notify_progress()
-        phone_news = self._phone_try("news", timeout=180)
+        phone_news = self._phone_try("news", timeout=120)
         if phone_news is not None:
             if phone_news.get("ok"):
-                self.log(
-                    "[8/8] News — phone reported success. "
-                    "Not marking done until getuserinfo shows a live counter."
-                )
+                self.log("[8/8] News — credited on the linked phone.")
+                self.daily_set.mark_news_as_completed()
+                self._report("News", True, phone_news.get("detail") or "by phone")
             else:
                 self.log(
                     f"[8/8] News — phone did not finish: {phone_news.get('detail')}"
@@ -4208,10 +3661,6 @@ class AutoRewarderAPI:
                 )
             self._notify_progress()
         if phone_checkin is not None and phone_news is not None:
-            if (
-                phone_checkin.get("ok") or phone_news.get("ok")
-            ) and not self._stop_event.is_set():
-                self._verify_phone_bing_counters(tasks, phone_checkin, phone_news)
             return
 
         if phone_checkin is None or phone_news is None:
@@ -4221,9 +3670,7 @@ class AutoRewarderAPI:
             )
 
         try:
-            self._driver = self.driver_manager.setup_driver(
-                mobile=True, bing_app=True, market=market
-            )
+            self._driver = self.driver_manager.setup_driver(mobile=True, bing_app=True)
         except Exception:
             if self._stop_event.is_set():
                 self.log("Stopped.")
@@ -4284,12 +3731,13 @@ class AutoRewarderAPI:
                         "Bing mobile app only — web tile does not open a page",
                     )
                 try:
-                    if isinstance(after, (list, tuple)) and len(after) == 2:
-                        snap_done, snap_total = int(after[0]), int(after[1])
-                        if snap_total > 0:
-                            self.daily_set.save_live_snapshot(
-                                {"checkin": [snap_done, snap_total]}
+                    self.daily_set.save_live_snapshot(
+                        {
+                            "checkin": (
+                                after if isinstance(after, (list, tuple)) else [0, 1]
                             )
+                        }
+                    )
                 except Exception:
                     pass
                 self._notify_progress()
@@ -4306,20 +3754,11 @@ class AutoRewarderAPI:
                 and int(news_frac[1]) > 0
             )
             if not news_offered:
-                tile = bool(live.get("hasNews") or live.get("news_tile"))
-                detail = news_unoffered_detail(news_frac, tile)
-                if tile:
-                    self.log(
-                        "[8/8] News — check-in/news tile is on the page. "
-                        "readArticle is not on getuserinfo, so this run "
-                        "does not mark it done."
-                    )
-                else:
-                    self.log(
-                        "[8/8] News — no read-to-earn counter on this account. "
-                        "The news quiz lives under More activities. Skipping."
-                    )
-                self._report("News", "skip", detail)
+                self.log(
+                    "[8/8] News — no read-to-earn counter on this account. "
+                    "The news quiz lives under More activities. Skipping."
+                )
+                self._report("News", "skip", "not offered (quiz is a More activity)")
             elif news_done:
                 self.log(
                     f"[8/8] News — already complete on phone client "
@@ -4331,28 +3770,35 @@ class AutoRewarderAPI:
                 )
             elif not self._stop_event.is_set():
                 self.log(
-                    f"[8/8] News — Bing phone client ({market}). "
+                    "[8/8] News — Bing phone client (Colombia). "
                     "PC dashboard does not show this; the app does."
                 )
-                tasks.read_news(self._driver, stop_event=self._stop_event)
+                ok = tasks.read_news(self._driver, stop_event=self._stop_event)
                 news_after = tasks.news_progress(self._driver)
                 try:
-                    done_n, total_n = int(news_after[0]), int(news_after[1])
-                except (TypeError, ValueError, IndexError):
-                    done_n, total_n = 0, 0
-                if total_n > 0:
-                    try:
-                        self.daily_set.save_live_snapshot({"news": [done_n, total_n]})
-                    except Exception:
-                        pass
-                if total_n > 0 and done_n >= total_n:
+                    self.daily_set.save_live_snapshot(
+                        {"news": [news_after[0], news_after[1] or 30]}
+                    )
+                except Exception:
+                    pass
+                if ok:
                     self.daily_set.mark_news_as_completed()
-                    self.log(f"[8/8] News — live counter {done_n}/{total_n}.")
-                    self._report("News", True, f"{done_n}/{total_n}")
+                    self.log(
+                        f"[8/8] News — credited on phone client "
+                        f"({news_after[0]}/{news_after[1] or 30})."
+                    )
+                    self._report(
+                        "News",
+                        True,
+                        f"{news_after[0]}/{news_after[1] or 30}",
+                    )
                 else:
-                    shown = f"{done_n}/{total_n}" if total_n > 0 else "unverified"
-                    self.log(f"[8/8] News — not complete ({shown}). Not marking done.")
-                    self._report("News", False, f"no credit ({shown})")
+                    self.log("[8/8] News — did not credit. Not marking done.")
+                    self._report(
+                        "News",
+                        False,
+                        f"no credit ({news_after[0]}/{news_after[1] or 30})",
+                    )
                 self._notify_progress()
 
             if not self._stop_event.is_set() and not checkin_done:
@@ -4652,20 +4098,11 @@ class AutoRewarderAPI:
             self._driver = self.driver_manager.setup_driver(
                 mobile=mobile, bing_app=bool(mobile)
             )
-        except Exception as e:
+        except Exception:
             if self._stop_event.is_set():
                 self.log("Stopped.")
                 return
-            self.log(f"[WARNING] {label}: Edge failed ({e}). Retrying once.")
-            try:
-                self._driver = self.driver_manager.setup_driver(
-                    mobile=mobile, bing_app=bool(mobile)
-                )
-            except Exception as e2:
-                self.log(
-                    f"[ERROR] {label}: could not open Edge ({e2}). Skipping phase."
-                )
-                return
+            raise
         if self._stop_event.is_set():
             self._quit_driver()
             return
@@ -4676,62 +4113,18 @@ class AutoRewarderAPI:
                 self._session_counts[bucket] += 1
                 self._notify_progress()
 
-            def _should_stop(n):
-                return self._search_cap_hit(mobile, after_n=n)
-
-            done = 0
-            cap_skip = self._search_cap_hit(mobile, after_n=0, navigate=True)
-            if cap_skip:
-                queries_to_search = []
-            try:
-                if queries_to_search:
-                    done = self.search_engine.perform_searches(
-                        self._driver,
-                        queries_to_search,
-                        mobile=mobile,
-                        stop_event=self._stop_event,
-                        on_success=_on_search,
-                        should_stop=_should_stop,
-                    )
-            except Exception as e:
-                self.log(
-                    f"[WARNING] {label}: searches interrupted ({e}). Reopening Edge."
-                )
-                self._quit_driver()
-                leftover = queries_to_search[int(done or 0) :]
-                if leftover and not self._stop_event.is_set():
-                    try:
-                        self._driver = self.driver_manager.setup_driver(
-                            mobile=mobile, bing_app=bool(mobile)
-                        )
-                        extra = self.search_engine.perform_searches(
-                            self._driver,
-                            leftover,
-                            mobile=mobile,
-                            stop_event=self._stop_event,
-                            on_success=_on_search,
-                            should_stop=_should_stop,
-                        )
-                        done = int(done or 0) + int(extra or 0)
-                    except Exception as e2:
-                        self.log(f"[ERROR] {label}: remaining searches failed ({e2}).")
-            if cap_skip and int(done or 0) == 0:
-                search_ok = "skip"
-                search_detail = "cap reached"
-            elif int(done or 0) > 0:
-                search_ok = True
-                search_detail = f"{int(done or 0)}/{count}" + (
-                    " · Bing phone client" if mobile else ""
-                )
-            else:
-                search_ok = False
-                search_detail = f"{int(done or 0)}/{count}" + (
-                    " · Bing phone client" if mobile else ""
-                )
+            done = self.search_engine.perform_searches(
+                self._driver,
+                queries_to_search,
+                mobile=mobile,
+                stop_event=self._stop_event,
+                on_success=_on_search,
+            )
             self._report(
                 f"Search: {'Mobile' if mobile else 'PC'}",
-                search_ok,
-                search_detail,
+                True if int(done or 0) > 0 else False,
+                f"{int(done or 0)}/{count}"
+                + (" · Bing phone client" if mobile else ""),
             )
 
             ran_daily_set = False
@@ -4787,22 +4180,10 @@ class AutoRewarderAPI:
                     pass
                 self._try_scrape_balance()
                 if not self._stop_event.is_set():
-                    live_now = getattr(self.daily_set, "live_progress", {}) or {}
-                    if success and not self.daily_set.day_still_open(live_now, totals):
-                        marked = self.daily_set.mark_as_completed()
-                        if marked is False:
-                            self.log(
-                                "Daily Set cards done, but claim/punchcards still "
-                                "open — not marking the day done."
-                            )
-                        else:
-                            self.log(
-                                "Daily Set tasks completed and marked as done for today."
-                            )
-                    elif success:
+                    if success:
+                        self.daily_set.mark_as_completed()
                         self.log(
-                            "Daily Set cards done, but claim/punchcards still "
-                            "open — not marking the day done."
+                            "Daily Set tasks completed and marked as done for today."
                         )
                     else:
                         self.log("Daily Set failed. Not marked as done for today.")

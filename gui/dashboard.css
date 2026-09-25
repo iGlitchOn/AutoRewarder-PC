@@ -168,12 +168,6 @@ body {
 
 .diag-list li { word-break: break-all; }
 
-.dash-debug {
-  font-size: 11px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ---- Sections ---- */
 .dash-section {
   display: flex;

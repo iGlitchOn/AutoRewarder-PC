@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import (
     NoSuchElementException,
-    StaleElementReferenceException,
+    NoSuchWindowException,
     TimeoutException,
     WebDriverException,
 )
@@ -16,7 +16,6 @@ from selenium.webdriver.common.by import By
 
 from ..utils import human_typing, wait_or_stop
 from ..emulator import HumanBehavior
-from .locale import detect_system_locale
 
 # Rewards' "visual search streak" mission credits a search only when it starts
 # from the mission's own link: the Bing homepage carrying its promo code. The
@@ -174,13 +173,7 @@ class SearchEngine:
             return random.randint(10, 15)
 
     def perform_searches(
-        self,
-        driver,
-        queries,
-        mobile=False,
-        stop_event=None,
-        on_success=None,
-        should_stop=None,
+        self, driver, queries, mobile=False, stop_event=None, on_success=None
     ):
         """
         Perform searches on Bing using Selenium WebDriver with human-like behavior.
@@ -193,13 +186,12 @@ class SearchEngine:
             stop_event (threading.Event, optional): If provided and set, the
                 loop bails out at the next checkpoint and any in-progress
                 coffee break is interrupted immediately.
-            on_success (callable, optional): Called with the running SERP-ok
-                count after each search that loaded results.
-            should_stop (callable, optional): Called with that count after each
-                SERP ok. Return True to halt remaining queries (search cap).
+            on_success (callable, optional): Called with the running success
+                count after each credited search so the UI can update live.
 
         Returns:
-            int: the number of searches whose SERP loaded (not Microsoft credit).
+            int: the number of searches that completed successfully (used by
+                the stats layer to record activity for this run).
         """
 
         human = HumanBehavior(
@@ -221,28 +213,18 @@ class SearchEngine:
             try:
                 # Phone-client searches must look like the Bing app (Colombia).
                 # Desktop matches the original repo: plain bing.com.
-                got_timeout = False
                 try:
                     if mobile:
-                        mkt = detect_system_locale() or "en-US"
-                        lang = mkt.split("-")[0]
                         driver.get(
-                            "https://www.bing.com/?form=APMCS1"
-                            f"&setmkt={mkt}&setlang={lang}"
+                            "https://www.bing.com/?form=APMCS1&setmkt=es-CO&setlang=es"
                         )
                     else:
                         driver.get("https://www.bing.com")
                 except TimeoutException:
-                    got_timeout = True
                     try:
                         driver.execute_script("window.stop();")
                     except Exception:
                         pass
-                blocked = self._page_block_reason(driver)
-                if blocked:
-                    self._log(self._block_message(blocked))
-                    self._add_to_history(f"Search: {query}", f"[ERROR] {blocked}")
-                    return successful
                 if wait_or_stop(random.uniform(4, 8), stop_event):
                     self._log("Stop requested — halting search loop.")
                     return successful
@@ -281,11 +263,7 @@ class SearchEngine:
                         self._log("Stop requested — halting search loop.")
                         return successful
                     search_box = self._find_search_box(driver)
-                try:
-                    search_box.clear()
-                except StaleElementReferenceException:
-                    search_box = self._find_search_box(driver)
-                    search_box.clear()
+                search_box.clear()
 
                 # Log the search query in log area
                 self._log(f"Search #{i + 1}: {query}")
@@ -370,49 +348,63 @@ class SearchEngine:
                     self._log("Stop requested — halting search loop.")
                     return successful
 
-                # Close extra tabs from this search (any host).
-                try:
-                    if chosen_tab["name"] == "All":
-                        main_tab = driver.current_window_handle
-                    handles = list(driver.window_handles)
-                    for tab in handles:
-                        if tab == main_tab:
-                            continue
+                # Close all tabs other than main
+                if chosen_tab["name"] != "All":
+                    # Bing can close or replace a tab while the click is still
+                    # settling. Work from a snapshot and re-check handles
+                    # before every switch/close so a vanished tab is treated
+                    # as already cleaned up instead of a run warning.
+                    try:
+                        open_tabs = list(driver.window_handles)
+                    except WebDriverException:
+                        open_tabs = []
+                    new_tabs = [tab for tab in open_tabs if tab != main_tab]
+                    for tab in new_tabs:
                         try:
+                            if tab not in driver.window_handles:
+                                continue
                             driver.switch_to.window(tab)
+                            hostname = (
+                                (urlparse(driver.current_url).hostname or "")
+                                .lower()
+                                .rstrip(".")
+                            )
+                            if hostname != "bing.com" and not hostname.endswith(
+                                ".bing.com"
+                            ):
+                                continue
                             driver.close()
-                        except WebDriverException as e:
+                        except (NoSuchWindowException, WebDriverException) as e:
+                            error_text = str(e).lower()
+                            if any(
+                                marker in error_text
+                                for marker in (
+                                    "no such window",
+                                    "target window already closed",
+                                    "window was already closed",
+                                )
+                            ):
+                                continue
                             short_error = str(e).split("\n")[0][:28]
                             self._log(
                                 f"[WARNING] WebDriver error when closing tab: {short_error}. Continuing."
                             )
-                    if main_tab in driver.window_handles:
+
+                    try:
+                        remaining_tabs = list(driver.window_handles)
+                    except WebDriverException:
+                        remaining_tabs = []
+                    if main_tab in remaining_tabs:
                         driver.switch_to.window(main_tab)
-                except WebDriverException:
-                    pass
+                    elif remaining_tabs:
+                        driver.switch_to.window(remaining_tabs[0])
 
-                blocked = self._page_block_reason(driver)
-                if blocked:
-                    self._log(self._block_message(blocked))
-                    self._add_to_history(f"Search: {query}", f"[ERROR] {blocked}")
-                    return successful
-                if got_timeout and not self._has_search_results(driver):
-                    self._log(f"[ERROR] Search #{i + 1} timed out with no results.")
-                    self._add_to_history(f"Search: {query}", "[ERROR] Timed out")
-                    continue
-
-                # SERP loaded. This is not proof Microsoft credited the search.
-                self._add_to_history(f"Search: {query}", "SERP ok")
+                # Add to history.json
+                self._add_to_history(f"Search: {query}", "Success")
                 successful += 1
                 if callable(on_success):
                     try:
                         on_success(successful)
-                    except Exception:
-                        pass
-                if callable(should_stop):
-                    try:
-                        if should_stop(successful):
-                            return successful
                     except Exception:
                         pass
 
@@ -430,11 +422,6 @@ class SearchEngine:
                 self._add_to_history(
                     f"Search: {query}", f"[ERROR] WebDriver Error: {short_error}"
                 )
-                if self._session_dead(e):
-                    self._log(
-                        "[ERROR] Edge session is dead. Aborting remaining searches."
-                    )
-                    raise
 
             except Exception as e:
                 if stop_event is not None and stop_event.is_set():
@@ -445,56 +432,6 @@ class SearchEngine:
                 )
 
         return successful
-
-    def _session_dead(self, err):
-        from ..emulator.driver import DriverManager
-
-        return DriverManager._session_died(err)
-
-    def _page_block_reason(self, driver):
-        """Login wall or human-check. Uses URL/title only — not Bing locators."""
-        try:
-            url = (driver.current_url or "").lower()
-        except Exception:
-            url = ""
-        try:
-            title = (driver.title or "").lower()
-        except Exception:
-            title = ""
-        blob = url + " " + title
-        if "login.live.com" in blob or "login.microsoftonline.com" in blob:
-            return "login"
-        if (
-            "unusual traffic" in blob
-            or "/challenge" in blob
-            or "captcha" in blob
-            or "verify you are human" in blob
-            or "privacynotice" in blob
-        ):
-            return "challenge"
-        return None
-
-    @staticmethod
-    def _block_message(reason):
-        if reason == "login":
-            return (
-                "[ERROR] Microsoft login expired. Re-setup this account. "
-                "Stopping remaining searches."
-            )
-        return "[ERROR] Bing is showing a human check. Stopping remaining searches."
-
-    def _has_search_results(self, driver):
-        try:
-            url = (driver.current_url or "").lower()
-            if "/search?" in url or "search?q=" in url:
-                return True
-        except Exception:
-            pass
-        try:
-            driver.find_element(By.ID, "b_results")
-            return True
-        except Exception:
-            return False
 
     def _find_search_box(self, driver):
         """Locate Bing's search box. Upstream uses NAME=q; Bing also uses textarea."""

@@ -4,9 +4,6 @@ import os
 import json
 from datetime import datetime
 
-# Cap so add_to_history stays O(1) in RAM and writes stay bounded.
-HISTORY_MAX = 5000
-
 
 class HistoryManager:
     """
@@ -23,7 +20,6 @@ class HistoryManager:
 
         self.history_file = history_file
         self._logger = logger
-        self._cache = None
 
     def _log(self, message):
         if self._logger:
@@ -35,14 +31,10 @@ class HistoryManager:
         Returns an empty list if the file is missing or unreadable.
         """
 
-        if self._cache is not None:
-            return list(self._cache)
-
         if (
             not os.path.exists(self.history_file)
             or os.path.getsize(self.history_file) == 0
         ):
-            self._cache = []
             return []
 
         try:
@@ -52,41 +44,22 @@ class HistoryManager:
                 if not isinstance(history, list):
                     raise ValueError("History data must be a list")
 
-                self._cache = history
-                return list(history)
+                return history
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             self._log(
                 "[ERROR] History file was unreadable or damaged. Starting with a fresh one."
             )
 
             backup_path = self.history_file + ".backup"
-            restored = None
-            if os.path.isfile(backup_path):
-                try:
-                    with open(backup_path, "r", encoding="utf-8") as file:
-                        restored = json.load(file)
-                    if not isinstance(restored, list):
-                        restored = None
-                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
-                    restored = None
-            if restored is not None:
-                self._cache = restored
-                try:
-                    self.save_history(restored)
-                except OSError:
-                    pass
-                return list(restored)
 
-            try:
-                os.replace(self.history_file, backup_path)
-            except OSError:
-                pass
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
 
-            self._cache = []
-            try:
-                self.save_history([])
-            except OSError:
-                pass
+            os.replace(self.history_file, backup_path)
+
+            with open(self.history_file, "w", encoding="utf-8") as file:
+                json.dump([], file, indent=4)
+
             return []
 
     def save_history(self, history_list):
@@ -97,29 +70,14 @@ class HistoryManager:
             history_list (list): The list of search records to save.
         """
 
-        if len(history_list) > HISTORY_MAX:
-            history_list = history_list[-HISTORY_MAX:]
-        self._cache = list(history_list)
         os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
 
         temp_file = self.history_file + ".tmp"
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-            except OSError:
-                pass
-        try:
-            with open(temp_file, "w", encoding="utf-8") as file:
-                json.dump(history_list, file)
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(temp_file, self.history_file)
-        except OSError:
-            try:
-                os.remove(temp_file)
-            except OSError:
-                pass
-            raise
+
+        with open(temp_file, "w", encoding="utf-8") as file:
+            json.dump(history_list, file, indent=4)
+
+        os.replace(temp_file, self.history_file)
 
     def add_to_history(self, query_text, status):
         """
@@ -143,8 +101,6 @@ class HistoryManager:
 
         history_list = self.get_history()
         history_list.append(new_record)
-        if len(history_list) > HISTORY_MAX:
-            history_list = history_list[-HISTORY_MAX:]
         self.save_history(history_list)
 
     def add_activity(self, activity, status):

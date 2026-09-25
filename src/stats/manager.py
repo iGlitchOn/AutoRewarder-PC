@@ -1,10 +1,17 @@
 """
 Statistics storage + points-balance scraping for a single account.
 
-The hero total is the scraped / getuserinfo availablePoints balance only.
-Activity counters (PC / mobile searches, cards) stay on disk for the
-debug chart. POINTS_PER_* is an internal estimate of that activity and
-must never be shown as the account balance.
+Two complementary data sources feed the dashboard (see the design choice in
+the GUI):
+
+  * Activity counters — exact counts of PC / Mobile searches and Daily Set
+    cards completed, accumulated from each run. These drive an *estimated*
+    points figure (counters x per-item constants) used as a fallback when the
+    real balance can't be scraped.
+  * Real balance — the actual "available points" number scraped from
+    rewards.bing.com at the end of a run that visits it. This is the source of
+    truth for the total, and successive scrapes give the points delta for a
+    session.
 
 Persistence mirrors HistoryManager: atomic temp-file writes and graceful
 recovery (back up + reset) when the JSON file is unreadable.
@@ -14,7 +21,9 @@ import os
 import json
 from datetime import datetime
 
-# Internal activity estimate only (debug chart). Never shown as the hero total.
+# Microsoft Rewards awards roughly these points per item. Used ONLY for the
+# estimated-points figure shown when no real balance has been scraped yet;
+# the scraped balance always takes precedence as the source of truth.
 POINTS_PER_SEARCH = 3
 POINTS_PER_CARD = 10
 
@@ -32,7 +41,7 @@ _DAILY_KEEP = 90
 # what each selector matched, logged when value is null so the real (locale-
 # and version-dependent) DOM can be diagnosed without a live debugger.
 # Defensive throughout: any DOM shift just yields a null value and the caller
-# shows a dash rather than an invented total.
+# falls back to the estimate rather than crashing.
 _SCRAPE_BALANCE_JS = r"""
 return (function () {
   function toInt(raw) {
@@ -179,45 +188,6 @@ def scrape_points_balance(driver, logger=None):
     return None
 
 
-def derive_display_points(data):
-    """Hero numbers: scraped / getuserinfo balance only. Never POINTS_PER_*.
-
-    Args:
-        data (dict): a stats.json structure (lifetime / balance / daily).
-
-    Returns:
-        dict with total_points (int|None), today_points (int|None),
-        is_estimate (True when no real balance), and a debug_estimate that
-        the UI may show in a corner.
-    """
-    data = data or {}
-    balance = (data.get("balance") or {}).get("current")
-    if not isinstance(balance, int):
-        balance = None
-    today = datetime.now().date().isoformat()
-    bucket = (data.get("daily") or {}).get(today) or {}
-    start_bal = bucket.get("start_balance")
-    end_bal = balance if isinstance(balance, int) else bucket.get("end_balance")
-    today_points = None
-    if isinstance(start_bal, int) and isinstance(end_bal, int):
-        today_points = int(end_bal) - int(start_bal)
-    last = data.get("last_session") or {}
-    ended_at = last.get("ended_at")
-    debug_estimate = int((data.get("lifetime") or {}).get("points_estimate") or 0)
-    missing = today_points is None
-    return {
-        "total_points": balance,
-        "is_estimate": balance is None,
-        "session_points": today_points,
-        "session_is_estimate": missing,
-        "last_run_at": ended_at,
-        "last_run_date": today,
-        "today_points": today_points,
-        "today_is_estimate": missing,
-        "debug_estimate": debug_estimate,
-    }
-
-
 class StatsManager:
     """
     Manages the statistics file for a single account. Each instance is bound to
@@ -346,54 +316,20 @@ class StatsManager:
                 "[ERROR] Stats file was unreadable or damaged. Starting with a fresh one."
             )
             backup_path = self.stats_file + ".backup"
-            restored = None
-            if os.path.isfile(backup_path):
-                try:
-                    with open(backup_path, "r", encoding="utf-8") as file:
-                        restored = json.load(file)
-                    if not isinstance(restored, dict):
-                        restored = None
-                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
-                    restored = None
-            if restored is not None:
-                merged = self._merge_defaults(restored)
-                try:
-                    self.save_stats(merged)
-                except OSError:
-                    pass
-                return merged
-            try:
-                os.replace(self.stats_file, backup_path)
-            except OSError:
-                pass
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            os.replace(self.stats_file, backup_path)
             fresh = self._default()
-            try:
-                self.save_stats(fresh)
-            except OSError:
-                pass
+            self.save_stats(fresh)
             return fresh
 
     def save_stats(self, data):
         """Save the statistics to the JSON file atomically via a temp file."""
         os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
         temp_file = self.stats_file + ".tmp"
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-            except OSError:
-                pass
-        try:
-            with open(temp_file, "w", encoding="utf-8") as file:
-                json.dump(data, file, indent=4)
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(temp_file, self.stats_file)
-        except OSError:
-            try:
-                os.remove(temp_file)
-            except OSError:
-                pass
-            raise
+        with open(temp_file, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+        os.replace(temp_file, self.stats_file)
 
     def _ensure_day_start_balance(self, stats, new_balance):
         """Remember the first known balance of the local day.

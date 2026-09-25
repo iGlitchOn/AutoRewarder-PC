@@ -2,38 +2,8 @@
 
 AutoRewarder PC es la aplicación de Windows que centraliza las búsquedas y tareas de Microsoft Rewards desde una interfaz gráfica. También puede coordinarse con la aplicación móvil para enviar comandos, consultar el estado del teléfono y ejecutar las búsquedas móviles disponibles.
 
-> Versión documentada: **4.3.45**<br>
-> Este repositorio: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)<br>
-> **Fork de** [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder)
-
-## Origen
-
-Este proyecto es un **fork** de [safarsin/AutoRewarder](https://github.com/safarsin/AutoRewarder).
-
-El motor original (Selenium + Edge, búsquedas PC/móvil emuladas, Daily Set, Visual Search, cuentas, CLI, programador y GUI pywebview) es de safarsin. Esta distribución lo conserva y añade el compañero Android y el puente PC–teléfono. Las releases propias se publican aquí; las del original se notifican y **no se instalan automáticamente**.
-
-### Cambios propios respecto al original
-
-- Aplicación Android nativa en [iGlitchOn/AutoRewarder-Mobile](https://github.com/iGlitchOn/AutoRewarder-Mobile), además de la emulación móvil en Edge.
-- Vinculación PC–teléfono por QR o código manual (`src/phone_bridge.py`, `gui/phone.html`).
-- Túnel / descubrimiento para que el teléfono encuentre este PC (`src/tunnel.py`).
-- Acciones remotas hacia el móvil: iniciar o detener búsquedas, check-in, noticias, abrir Bing o Edge.
-- Publicación y descarga de APK desde el PC (`src/apk_update.py`).
-- Comprobación dual de GitHub: instala solo releases de `iGlitchOn`; avisa si hay una versión nueva en `safarsin/AutoRewarder`.
-- Interfaz en inglés y español (`gui/i18n.js`).
-- Branding iGlitchOff y documentación de usuario en español.
-
-## Licencia
-
-MIT. Conserva el copyright de safarsin (2025) y añade el de iGlitchOff / iGlitchOn (2026) por las modificaciones y el compañero Android. Textos: [LICENSE](LICENSE) y [NOTICE](NOTICE).
-
-`queries.json` y las fotos de visual search se heredaron del original; su procedencia exacta no está documentada. Las listas en `datasets/` se aceptan bajo MIT.
-
-cloudflared (Apache-2.0) y ngrok (propietario, ToS de ngrok) son opcionales y no se redistribuyen en el instalador. Edge / WebView2 no se empaquetan.
-
-## Disclaimer
-
-No está afiliado a Microsoft. Automatizar Bing o Microsoft Rewards puede violar sus términos. El uso, la cuenta y los puntos son responsabilidad de quien ejecuta el programa.
+> Versión documentada: **4.3.5**<br>
+> Repositorio de esta distribución: [iGlitchOn/AutoRewarder-PC](https://github.com/iGlitchOn/AutoRewarder-PC)
 
 ## Qué hace
 
@@ -92,15 +62,6 @@ Por eso puedes actualizar el programa portable sin borrar las cuentas ni el hist
 5. Abre AutoRewarder desde el acceso directo.
 
 La instalación incluye los archivos necesarios para ejecutar la interfaz y el motor de automatización. Microsoft Edge debe estar instalado y la cuenta debe poder iniciar sesión normalmente en Bing y Microsoft Rewards.
-
-## Desinstalación
-
-1. Cierra AutoRewarder desde la bandeja si el icono sigue ahí, o deja que el desinstalador lo mate.
-2. En Windows: **Configuración → Aplicaciones → AutoRewarder → Desinstalar**, o el acceso **Uninstall AutoRewarder** del menú Inicio.
-3. Confirma si también quieres borrar cuentas, perfiles de Edge, historial y ajustes (`%LOCALAPPDATA%\AutoRewarder`).
-4. El desinstalador cierra `AutoRewarder.exe` (aunque esté en la bandeja), quita las tareas programadas `AutoRewarder*`, las claves de inicio `AutoRewarder` / `AutoRewarderGUI` y el acceso de Startup.
-
-Borrar solo `C:\Program Files\AutoRewarder` no desinstala: la app puede seguir en bandeja y los datos quedan en AppData. La versión portable no tiene desinstalador: cierra el exe y borra la carpeta del ZIP **y** `%LOCALAPPDATA%\AutoRewarder`.
 
 ## Primer inicio, paso a paso
 
@@ -196,7 +157,7 @@ Antes de actualizar:
 4. Descarga la release desde GitHub.
 5. Sustituye solo los archivos del programa, no la carpeta de configuración.
 
-Las versiones usan el formato `4.3.x` mientras el original de safarsin sea `4.3` (si publica `4.4`, esta distribución pasa a `4.4.x`). El tag y el nombre de release deben coincidir, por ejemplo `v4.3.6` y `4.3.6`.
+Las versiones usan el formato `4.3.x`. El tag y el nombre de release deben coincidir, por ejemplo `v4.3.5` y `4.3.5`.
 
 ## Configuración y datos
 

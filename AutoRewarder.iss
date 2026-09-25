@@ -1,8 +1,8 @@
 [Setup]
 AppName=AutoRewarder
 AppId=AutoRewarder
-AppVersion=4.3.45
-AppPublisher=iGlitchOff
+AppVersion=4.3.46
+AppPublisher=Sino Safarov
 AppPublisherURL=https://github.com/iGlitchOn/AutoRewarder-PC
 DefaultDirName={pf}\AutoRewarder
 DefaultGroupName=AutoRewarder
@@ -15,11 +15,6 @@ ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern dynamic
 DisableWelcomePage=no
 LicenseFile=LICENSE
-CloseApplications=force
-CloseApplicationsFilter=AutoRewarder.exe
-RestartApplications=no
-UninstallDisplayName=AutoRewarder
-UninstallDisplayIcon={app}\AutoRewarder.exe
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -28,8 +23,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "dist\AutoRewarder\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\AutoRewarder"; Filename: "{app}\AutoRewarder.exe"; IconFilename: "{app}\AutoRewarder.exe"; Tasks: startmenu
-Name: "{group}\Uninstall AutoRewarder"; Filename: "{uninstallexe}"; Tasks: startmenu
+Name: "{group}\AutoRewarder"; Filename: "{app}\AutoRewarder.exe"; IconFilename: "{app}\AutoRewarder.exe"
+Name: "{group}\Uninstall"; Filename: "{uninstallexe}"; Tasks: not startmenu
 Name: "{commondesktop}\AutoRewarder"; Filename: "{app}\AutoRewarder.exe"; Tasks: desktopicon
 
 [Tasks]
@@ -42,78 +37,13 @@ Filename: "{app}\AutoRewarder.exe"; Description: "Launch AutoRewarder"; Flags: n
   Filename: "https://github.com/iGlitchOn/AutoRewarder-PC"; Description: "Open GitHub repository"; Flags: shellexec nowait postinstall skipifsilent unchecked
 Filename: "https://buymeacoffee.com/safarsin"; Description: "Support development (Buy me a coffee)"; Flags: shellexec nowait postinstall skipifsilent unchecked
 
+[UninstallDelete]
+; Remove every file created inside the program folder, including stale APKs
+; or files left by an older portable/manual installation. Keep user data in
+; %LOCALAPPDATA% so uninstalling the app does not delete accounts or history.
+Type: filesandordirs; Name: "{app}"
+
 [Code]
-var
-  GDeleteUserData: Boolean;
-
-procedure KillRunningAutoRewarder;
-var
-  ResultCode: Integer;
-begin
-  { close_to_tray turns WM_CLOSE into a tray hide. Force-kill the tree. }
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM AutoRewarder.exe /T',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM msedgedriver.exe /T',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(800);
-end;
-
-procedure RemoveWindowsHooks;
-var
-  ResultCode: Integer;
-begin
-  Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "AutoRewarder" /F',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -ExecutionPolicy Bypass -Command "Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like ''AutoRewarder*'' } | Unregister-ScheduledTask -Confirm:$false"',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarder');
-  RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarderGUI');
-  DeleteFile(ExpandConstant('{userappdata}\Microsoft\Windows\Start Menu\Programs\Startup\AutoRewarder.lnk'));
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  RunCmd: String;
-  Expected: String;
-begin
-  if CurStep <> ssPostInstall then
-    Exit;
-  { Install must not delete accounts. Only drop a Run command for another exe. }
-  Expected := ExpandConstant('{app}\AutoRewarder.exe');
-  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarderGUI', RunCmd) then
-  begin
-    if Pos(LowerCase(Expected), LowerCase(RunCmd)) = 0 then
-      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AutoRewarderGUI');
-  end;
-end;
-
-function InitializeUninstall(): Boolean;
-begin
-  Result := True;
-  GDeleteUserData := True;
-  if MsgBox(
-       'AutoRewarder will be closed if it is running, including the tray icon.' + #13#10#13#10 +
-       'Also delete saved accounts, Edge profiles, history and settings from this PC?',
-       mbConfirmation, MB_YESNO) = IDNO then
-    GDeleteUserData := False;
-  KillRunningAutoRewarder;
-end;
-
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  if CurUninstallStep = usUninstall then
-  begin
-    KillRunningAutoRewarder;
-    RemoveWindowsHooks;
-    if GDeleteUserData then
-    begin
-      DelTree(ExpandConstant('{localappdata}\AutoRewarder'), True, True, True);
-      DelTree(ExpandConstant('{userappdata}\AutoRewarder'), True, True, True);
-    end;
-  end;
-end;
-
 procedure ExitSetupWithError(ErrorMsg: String);
 begin
   SuppressibleMsgBox(ErrorMsg, mbCriticalError, MB_OK, IDOK);
@@ -178,13 +108,13 @@ begin
   if not CheckDependencies then
     Abort;
 
-  SuppressibleMsgBox('AutoRewarder will be installed.' + #13#10#13#10 +
+  MsgBox('AutoRewarder will be installed.' + #13#10#13#10 +
          'System Requirements:' + #13#10 +
          '• Windows 10 or later' + #13#10 +
          '• Microsoft Edge' + #13#10 +
          '• .NET Framework 4.8 or higher' + #13#10#13#10 +
          'After installation, you can access the User Guide on GitHub.',
-         mbInformation, MB_OK, IDOK);
+         mbInformation, MB_OK);
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;

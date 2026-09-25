@@ -9,27 +9,6 @@ SCHEMA_VERSION = 3
 UNREADABLE = object()
 
 
-def _load_json_dict(path):
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError):
-        return None
-
-
-def _stash_file(path, suffix):
-    dest = path + suffix
-    try:
-        if os.path.isfile(dest):
-            os.remove(dest)
-        os.replace(path, dest)
-    except OSError:
-        pass
-
-
 def _read_json(path, default):
     """Read JSON without replacing a file that is only temporarily locked."""
     if not os.path.exists(path):
@@ -40,20 +19,18 @@ def _read_json(path, default):
     for attempt in range(4):
         try:
             with open(path, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            if isinstance(data, dict):
-                return data
-            raise ValueError("settings must be an object")
+                return json.load(file)
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            recovered = _load_json_dict(path + ".backup")
-            if recovered is not None:
-                _stash_file(path, ".corrupt")
+            backup_path = path + ".backup"
+            if os.path.exists(backup_path):
                 try:
-                    _write_json(path, recovered)
+                    os.remove(backup_path)
                 except OSError:
                     pass
-                return recovered
-            _stash_file(path, ".backup")
+            try:
+                os.replace(path, backup_path)
+            except OSError:
+                pass
             return default
         except OSError:
             _time.sleep(0.15 * (attempt + 1))
@@ -91,8 +68,6 @@ def _write_json(path, data):
         try:
             with open(temp_path, "w", encoding="utf-8") as file:
                 json.dump(data, file, indent=4)
-                file.flush()
-                os.fsync(file.fileno())
             os.replace(temp_path, path)
             return
         except PermissionError as e:
@@ -169,16 +144,6 @@ class GlobalSettingsManager:
                 pass
 
         if not os.path.exists(self.path):
-            recovered = _load_json_dict(self.path + ".backup")
-            if recovered is not None:
-                merged = {**defaults, **recovered}
-                try:
-                    self.save_settings(merged)
-                except OSError:
-                    pass
-                self._last_good = dict(merged)
-                self._read_ok = True
-                return merged
             # First-launch init. If we can't write (locked/denied), still
             # return defaults so reads don't blow up — the next successful
             # write (via save_settings from a user action) will create it.
@@ -318,8 +283,8 @@ class GlobalSettingsManager:
         """Persist the LLM query-generation config.
 
         Unknown providers fall back to "openai"; an empty locale becomes
-        "auto". The API key is stored as plain text alongside the other
-        settings. A blank or whitespace-only key leaves the stored key as-is.
+        "auto". The API key is stored as-is (plain text) alongside the other
+        settings.
         """
         from ..search.llm import SUPPORTED_PROVIDERS
 
@@ -333,9 +298,7 @@ class GlobalSettingsManager:
         settings["use_llm_queries"] = bool(use_llm_queries)
         settings["llm_provider"] = provider
         settings["llm_model"] = str(model or "").strip()
-        incoming_key = str(api_key or "").strip()
-        if incoming_key:
-            settings["llm_api_key"] = incoming_key
+        settings["llm_api_key"] = str(api_key or "").strip()
         settings["search_locale"] = locale
         self.save_settings(settings)
 
