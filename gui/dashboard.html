@@ -80,6 +80,22 @@
           <span class="metric-label">Quest tasks</span>
         </div>
         <div class="metric">
+          <span class="metric-value" id="m_visual">0</span>
+          <span class="metric-label">Visual searches</span>
+        </div>
+        <div class="metric">
+          <span class="metric-value" id="m_checkins">0</span>
+          <span class="metric-label">Check-ins</span>
+        </div>
+        <div class="metric">
+          <span class="metric-value" id="m_news">0</span>
+          <span class="metric-label">News reads</span>
+        </div>
+        <div class="metric">
+          <span class="metric-value" id="m_edge">0</span>
+          <span class="metric-label">Edge minutes</span>
+        </div>
+        <div class="metric">
           <span class="metric-value" id="m_runs">0</span>
           <span class="metric-label">Runs</span>
         </div>
@@ -214,6 +230,10 @@
       document.getElementById('m_cards').textContent = fmt(life.daily_cards || 0);
       document.getElementById('m_earn').textContent = fmt(life.earn_cards || 0);
       document.getElementById('m_quests').textContent = fmt(life.quest_tasks || 0);
+      document.getElementById('m_visual').textContent = fmt(life.visual_searches || 0);
+      document.getElementById('m_checkins').textContent = fmt(life.checkins || 0);
+      document.getElementById('m_news').textContent = fmt(life.news_reads || 0);
+      document.getElementById('m_edge').textContent = fmt(life.edge_minutes || 0);
       document.getElementById('m_runs').textContent = fmt(life.runs || 0);
 
       render_runs_chart(stats.daily || {}, stats.constants);

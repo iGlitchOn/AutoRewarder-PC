@@ -169,6 +169,10 @@ class AutoRewarderAPI:
             "cards": 0,
             "earn": 0,
             "quests": 0,
+            "visual": 0,
+            "checkins": 0,
+            "news": 0,
+            "edge_minutes": 0,
         }
         self._last_scraped_balance = None
         # Whether the Daily Set / visual search already ran in this main() call.
@@ -3395,6 +3399,10 @@ class AutoRewarderAPI:
                     daily_cards=self._session_counts.get("cards", 0),
                     earn_cards=self._session_counts.get("earn", 0),
                     quest_tasks=self._session_counts.get("quests", 0),
+                    visual_searches=self._session_counts.get("visual", 0),
+                    checkins=self._session_counts.get("checkins", 0),
+                    news_reads=self._session_counts.get("news", 0),
+                    edge_minutes=self._session_counts.get("edge_minutes", 0),
                     balance=self._last_scraped_balance,
                 )
         except Exception as e:
@@ -3409,6 +3417,10 @@ class AutoRewarderAPI:
             "cards": 0,
             "earn": 0,
             "quests": 0,
+            "visual": 0,
+            "checkins": 0,
+            "news": 0,
+            "edge_minutes": 0,
         }
         self._notify_stats_refresh()
 
@@ -3468,7 +3480,11 @@ class AutoRewarderAPI:
         cards = int(self._session_counts.get("cards") or 0)
         earn = int(self._session_counts.get("earn") or 0)
         quests = int(self._session_counts.get("quests") or 0)
-        if pc + mobile + cards + earn + quests == 0:
+        visual = int(self._session_counts.get("visual") or 0)
+        checkins = int(self._session_counts.get("checkins") or 0)
+        news = int(self._session_counts.get("news") or 0)
+        edge_minutes = int(self._session_counts.get("edge_minutes") or 0)
+        if pc + mobile + cards + earn + quests + visual + checkins + news + edge_minutes == 0:
             return data
         import copy
 
@@ -3482,6 +3498,10 @@ class AutoRewarderAPI:
         life["daily_cards"] = int(life.get("daily_cards") or 0) + cards
         life["earn_cards"] = int(life.get("earn_cards") or 0) + earn
         life["quest_tasks"] = int(life.get("quest_tasks") or 0) + quests
+        life["visual_searches"] = int(life.get("visual_searches") or 0) + visual
+        life["checkins"] = int(life.get("checkins") or 0) + checkins
+        life["news_reads"] = int(life.get("news_reads") or 0) + news
+        life["edge_minutes"] = int(life.get("edge_minutes") or 0) + edge_minutes
         life["points_estimate"] = int(life.get("points_estimate") or 0) + estimate
         today = datetime.now().date().isoformat()
         bucket = data.setdefault("daily", {}).setdefault(
@@ -3500,6 +3520,10 @@ class AutoRewarderAPI:
             "daily_cards": cards,
             "earn_cards": earn,
             "quest_tasks": quests,
+            "visual_searches": visual,
+            "checkins": checkins,
+            "news_reads": news,
+            "edge_minutes": edge_minutes,
             "points_estimate": estimate,
             "points_delta": None,
         }
@@ -3688,6 +3712,7 @@ class AutoRewarderAPI:
         if phone_checkin is not None:
             if phone_checkin.get("ok"):
                 self.log("[7/8] Mobile check-in — completed on the linked phone.")
+                self._session_counts["checkins"] += 1
                 self.daily_set.mark_checkin_as_completed()
                 self._report(
                     "Check-in", True, phone_checkin.get("detail") or "by phone"
@@ -3711,6 +3736,7 @@ class AutoRewarderAPI:
         if phone_news is not None:
             if phone_news.get("ok"):
                 self.log("[8/8] News — credited on the linked phone.")
+                self._session_counts["news"] += 1
                 self.daily_set.mark_news_as_completed()
                 self._report("News", True, phone_news.get("detail") or "by phone")
             else:
@@ -3759,6 +3785,7 @@ class AutoRewarderAPI:
 
             if checkin_done:
                 self.log("[7/8] Mobile check-in — already complete, skipping.")
+                self._session_counts["checkins"] += 1
                 self.daily_set.mark_checkin_as_completed()
                 self._report(
                     "Check-in",
@@ -3778,6 +3805,7 @@ class AutoRewarderAPI:
                     and int(after[1]) > 0
                 )
                 if done_now:
+                    self._session_counts["checkins"] += 1
                     self.daily_set.mark_checkin_as_completed()
                     self.log("[7/8] Mobile check-in — complete on dashboard.")
                     self._report("Check-in", True, f"{after[0]}/{after[1]}")
@@ -3825,6 +3853,7 @@ class AutoRewarderAPI:
                     f"[8/8] News — already complete on phone client "
                     f"({news_frac[0]}/{news_frac[1]}), skipping."
                 )
+                self._session_counts["news"] += 1
                 self.daily_set.mark_news_as_completed()
                 self._report(
                     "News", True, f"{news_frac[0]}/{news_frac[1]} already complete"
@@ -3843,6 +3872,7 @@ class AutoRewarderAPI:
                 except Exception:
                     pass
                 if ok:
+                    self._session_counts["news"] += 1
                     self.daily_set.mark_news_as_completed()
                     self.log(
                         f"[8/8] News — credited on phone client "
@@ -3906,6 +3936,7 @@ class AutoRewarderAPI:
             run_native_edge_streak(
                 self.log, self._stop_event, minutes, self.driver_manager
             )
+            self._session_counts["edge_minutes"] += minutes
             self._report("Edge browsing", True, f"ran leftover {minutes} min")
         except Exception as e:
             self.log(f"[WARNING] Edge browsing streak failed: {e}")
@@ -4080,6 +4111,7 @@ class AutoRewarderAPI:
                 return False
 
             self.daily_set.mark_visual_search_as_completed()
+            self._session_counts["visual"] += 1
             self.log("Visual search marked as done for today.")
             self._report("Visual Search", True, "credited")
 

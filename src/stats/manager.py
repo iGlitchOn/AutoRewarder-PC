@@ -218,6 +218,10 @@ class StatsManager:
                 "daily_cards": 0,
                 "earn_cards": 0,
                 "quest_tasks": 0,
+                "visual_searches": 0,
+                "checkins": 0,
+                "news_reads": 0,
+                "edge_minutes": 0,
                 "runs": 0,
                 "points_estimate": 0,
             },
@@ -236,6 +240,10 @@ class StatsManager:
                 "daily_cards": 0,
                 "earn_cards": 0,
                 "quest_tasks": 0,
+                "visual_searches": 0,
+                "checkins": 0,
+                "news_reads": 0,
+                "edge_minutes": 0,
                 "points_estimate": 0,
                 "points_delta": None,
             },
@@ -382,6 +390,10 @@ class StatsManager:
         daily_cards=0,
         earn_cards=0,
         quest_tasks=0,
+        visual_searches=0,
+        checkins=0,
+        news_reads=0,
+        edge_minutes=0,
         balance=None,
     ):
         """
@@ -405,6 +417,10 @@ class StatsManager:
         cards = max(0, int(daily_cards or 0))
         earn = max(0, int(earn_cards or 0))
         quests = max(0, int(quest_tasks or 0))
+        visual = max(0, int(visual_searches or 0))
+        checkin = max(0, int(checkins or 0))
+        news = max(0, int(news_reads or 0))
+        edge = max(0, int(edge_minutes or 0))
 
         # Nothing happened (e.g. an empty batch in advanced scheduling and no
         # balance to refresh) — don't pollute the timeline with a no-op run.
@@ -414,6 +430,10 @@ class StatsManager:
             and cards == 0
             and earn == 0
             and quests == 0
+            and visual == 0
+            and checkin == 0
+            and news == 0
+            and edge == 0
             and (balance is None)
         ):
             return self.get_stats()
@@ -431,6 +451,10 @@ class StatsManager:
         lifetime["daily_cards"] += cards
         lifetime["earn_cards"] = lifetime.get("earn_cards", 0) + earn
         lifetime["quest_tasks"] = lifetime.get("quest_tasks", 0) + quests
+        lifetime["visual_searches"] = lifetime.get("visual_searches", 0) + visual
+        lifetime["checkins"] = lifetime.get("checkins", 0) + checkin
+        lifetime["news_reads"] = lifetime.get("news_reads", 0) + news
+        lifetime["edge_minutes"] = lifetime.get("edge_minutes", 0) + edge
         lifetime["runs"] += 1
         lifetime["points_estimate"] += session_estimate
 
@@ -455,6 +479,10 @@ class StatsManager:
             "daily_cards": cards,
             "earn_cards": earn,
             "quest_tasks": quests,
+            "visual_searches": visual,
+            "checkins": checkin,
+            "news_reads": news,
+            "edge_minutes": edge,
             "points_estimate": session_estimate,
             "points_delta": points_delta,
         }
