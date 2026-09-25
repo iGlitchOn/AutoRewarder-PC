@@ -81,14 +81,14 @@
     <section class="card run-card">
       <div class="run-top">
         <div class="field-inline queries-panel">
-          <span class="field-label">Queries</span>
+          <span class="field-label" data-i18n="queries">Queries</span>
           <div class="count-group">
             <label class="count-field" title="Desktop searches (up to 30/day on Microsoft Rewards)">
               <span>PC</span>
               <input type="number" id="count_pc" value="15" min="0" max="130">
             </label>
             <label class="count-field" title="Mobile searches (up to 20/day on Microsoft Rewards)">
-              <span>Mobile</span>
+              <span data-i18n="label.mobile">Mobile</span>
               <input type="number" id="count_mobile" value="15" min="0" max="99">
             </label>
           </div>
@@ -126,31 +126,31 @@
              title="Open the statistics dashboard" onclick="show_stats()"
              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show_stats(); }">
       <div class="card-header">
-        <div class="card-label">Stats</div>
+             <div class="card-label" data-i18n="stats">Stats</div>
         <span class="ghost-link" aria-hidden="true">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="20" x2="18" y2="10"></line>
             <line x1="12" y1="20" x2="12" y2="4"></line>
             <line x1="6" y1="20" x2="6" y2="14"></line>
           </svg>
-          Dashboard
+           <span data-i18n="stats.dashboard">Dashboard</span>
         </span>
       </div>
       <div class="stats-tiles">
         <div class="stat-tile">
           <span class="stat-value" id="stat_total">—</span>
-          <span class="stat-label" id="stat_total_label">Total points</span>
+           <span class="stat-label" id="stat_total_label" data-i18n="stats.total">Total points</span>
         </div>
         <div class="stat-tile">
           <span class="stat-value" id="stat_session">—</span>
-          <span class="stat-label">Earned today <span id="stat_session_date" class="stat-date"></span></span>
+           <span class="stat-label" data-i18n="stats.today">Earned today <span id="stat_session_date" class="stat-date"></span></span>
         </div>
       </div>
     </section>
 
     <section class="card rewards-card" id="rewards_overview_card">
       <div class="card-header">
-        <div class="card-label">Rewards overview</div>
+         <div class="card-label" data-i18n="rewards">Rewards overview</div>
         <span class="ghost-link" id="rewards_region">Detecting...</span>
       </div>
       <div class="rewards-summary">
@@ -170,13 +170,13 @@
     <!-- ==================== Activity card ==================== -->
     <section class="card activity-card">
       <div class="card-header">
-        <div class="card-label">Activity</div>
+         <div class="card-label" data-i18n="activity">Activity</div>
         <button id="history_btn" class="ghost-link" type="button" onclick="show_history()">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
-          View history
+           <span data-i18n="history">View history</span>
         </button>
       </div>
       <div id="log_area" class="activity-feed"></div>

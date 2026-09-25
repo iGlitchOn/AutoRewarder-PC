@@ -490,19 +490,19 @@ function update_status_indicator(forceState) {
   switch (state) {
     case 'executing':
       dot.classList.add('active');
-      text.textContent = 'Running…';
+      text.textContent = t('status.running');
       break;
     case 'ready':
       dot.classList.add('ready');
-      text.textContent = 'Ready';
+      text.textContent = t('status.ready');
       break;
     case 'setup':
       dot.classList.add('warning');
-      text.textContent = 'Setup needed';
+      text.textContent = t('status.setup');
       break;
     case 'empty':
     default:
-      text.textContent = 'No account selected';
+      text.textContent = t('status.no_account');
       break;
   }
 }
@@ -600,11 +600,11 @@ function refresh_rewards_overview() {
     const progress = info.progress || {};
     const estimate = info.estimate || {};
     const level = profile.membership || (profile.level ? `Level ${profile.level}` : 'Membership unavailable');
-    const region = profile.country || profile.locale || 'Region unknown';
+    const region = profile.country || profile.locale || t('rewards.region_unknown');
     const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
     set('rewards_level', level);
     set('rewards_region', region);
-    set('rewards_estimate', `Search estimate: ~${estimate.search_points || 0} pts/day`);
+    set('rewards_estimate', `${t('rewards.estimate')}: ~${estimate.search_points || 0} pts/day`);
     const leftover = (obj, fallback) => {
       if (obj && typeof obj === 'object' && obj.label) {
         const left = obj.left;
@@ -619,22 +619,22 @@ function refresh_rewards_overview() {
       }
       return s || 'pending';
     };
-    set('progress_pc', `PC: ${leftover(progress.pc, (progress.pc || {}).label)}`);
-    set('progress_mobile', `Mobile: ${leftover(progress.mobile, (progress.mobile || {}).label)}`);
-    set('progress_daily', `Daily: ${progress.daily || 'unknown'}`);
-    set('progress_visual', `Visual: ${progress.visual || 'pending'}`);
-    set('progress_checkin', `Check-in: ${leftover(progress.checkin, progress.checkin)}`);
-    set('progress_news', `News: ${leftover(progress.news, progress.news)}`);
-    set('progress_edge', `Edge: ${leftover(progress.edge, progress.edge)}`);
-    set('progress_reset', `Daily set ${progress.reset || 'resets at midnight'}`);
+    set('progress_pc', `${t('label.pc')}: ${leftover(progress.pc, (progress.pc || {}).label)}`);
+    set('progress_mobile', `${t('label.mobile')}: ${leftover(progress.mobile, (progress.mobile || {}).label)}`);
+    set('progress_daily', `${t('progress.daily')}: ${progress.daily || 'unknown'}`);
+    set('progress_visual', `${t('progress.visual')}: ${progress.visual || 'pending'}`);
+    set('progress_checkin', `${t('progress.checkin')}: ${leftover(progress.checkin, progress.checkin)}`);
+    set('progress_news', `${t('progress.news')}: ${leftover(progress.news, progress.news)}`);
+    set('progress_edge', `${t('progress.edge')}: ${leftover(progress.edge, progress.edge)}`);
+    set('progress_reset', `${t('progress.reset')}: ${progress.reset || 'resets at midnight'}`);
     refresh_manual_tasks();
     const pill = document.getElementById('daily_task_pill');
     if (pill) {
       const state = progress.daily_state || 'pending';
       pill.dataset.state = state;
-      if (state === 'done') pill.textContent = 'Daily tasks: done';
-      else if (state === 'partial') pill.textContent = `Daily tasks: ${progress.daily || 'partial'}`;
-      else pill.textContent = 'Daily tasks: pending (will verify live)';
+      if (state === 'done') pill.textContent = `${t('status.daily')}: done`;
+      else if (state === 'partial') pill.textContent = `${t('status.daily')}: ${progress.daily || 'partial'}`;
+      else pill.textContent = `${t('status.daily')}: pending`;
     }
     const current = accountsCache.find(a => a.id === currentAccountId);
     const meta = document.getElementById('current_meta');

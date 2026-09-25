@@ -25,6 +25,19 @@ const I18N = {
     "settings.language_auto": "Automatic (Windows / region)",
     "settings.language_en": "English",
     "settings.language_es": "Spanish",
+    "label.pc": "PC",
+    "label.mobile": "Mobile",
+    "status.daily": "Daily tasks",
+    "rewards.estimate": "Search estimate",
+    "rewards.region_unknown": "Region unknown",
+    "progress.daily": "Daily",
+    "progress.visual": "Visual",
+    "progress.checkin": "Check-in",
+    "progress.news": "News",
+    "progress.edge": "Edge",
+    "progress.reset": "Daily set",
+    "activity": "Activity",
+    "history": "View history",
   },
   es: {
     "run.start": "Iniciar",
@@ -51,6 +64,19 @@ const I18N = {
     "settings.language_auto": "Automático (Windows / región)",
     "settings.language_en": "Inglés",
     "settings.language_es": "Español",
+    "label.pc": "PC",
+    "label.mobile": "Móvil",
+    "status.daily": "Tareas del día",
+    "rewards.estimate": "Estimado de búsquedas",
+    "rewards.region_unknown": "Región desconocida",
+    "progress.daily": "Diarias",
+    "progress.visual": "Visual",
+    "progress.checkin": "Check-in",
+    "progress.news": "Noticias",
+    "progress.edge": "Edge",
+    "progress.reset": "Tareas del día",
+    "activity": "Actividad",
+    "history": "Ver historial",
   },
 };
 
@@ -87,6 +113,8 @@ function set_ui_lang(lang) {
   if (tasksBtn) tasksBtn.textContent = t("run.tasks");
   const stopLabel = document.querySelector("#stop_btn .stop-label");
   if (stopLabel && !/Stopping|Parando/.test(stopLabel.textContent)) stopLabel.textContent = t("run.stop");
+  if (typeof update_status_indicator === "function") update_status_indicator();
+  if (typeof refresh_rewards_overview === "function") refresh_rewards_overview();
 }
 
 function resolve_lang_from_settings(settings) {
