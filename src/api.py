@@ -52,10 +52,10 @@ from .stats import (
 # meta.json; this constant is only the fallback default for fresh accounts.
 AUTOSTART_TIME = "09:00"
 
-# Keep the displayed Rewards balance reasonably fresh even when no run is
-# active.  A minute avoids hammering the Rewards dashboard while still making
-# changes visible without requiring a manual refresh.
-POINTS_REFRESH_INTERVAL = 60.0
+# Keep the displayed Rewards balance reasonably fresh without repeatedly
+# opening WebDriver against the same Edge profile. Launch, account changes,
+# and run completion still refresh immediately; this is only the idle poll.
+POINTS_REFRESH_INTERVAL = 300.0
 
 # Naming prefix for the OS-level scheduled task / systemd unit. Each
 # account gets its own task: AutoRewarder.<account_id> on Windows,

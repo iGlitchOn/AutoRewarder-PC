@@ -1,7 +1,7 @@
 [Setup]
 AppName=AutoRewarder
 AppId=AutoRewarder
-AppVersion=4.3.46
+AppVersion=4.3.47
 AppPublisher=Sino Safarov
 AppPublisherURL=https://github.com/iGlitchOn/AutoRewarder-PC
 DefaultDirName={pf}\AutoRewarder
