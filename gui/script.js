@@ -569,7 +569,7 @@ function refresh_stats_ui() {
     if (!stats || !stats.derived) {
       if (totalEl) totalEl.textContent = '—';
       if (sessionEl) sessionEl.textContent = '—';
-      if (totalLabel) totalLabel.textContent = 'Total points';
+      if (totalLabel) totalLabel.textContent = t('stats.total');
       const dateEl = document.getElementById('stat_session_date');
       if (dateEl) dateEl.textContent = '';
       return;
@@ -577,7 +577,7 @@ function refresh_stats_ui() {
     const d = stats.derived;
     if (totalEl) totalEl.textContent = _fmt_points(d.total_points, d.is_estimate);
     if (totalLabel) {
-      totalLabel.textContent = d.is_estimate ? 'Total points (est.)' : 'Total points';
+      totalLabel.textContent = d.is_estimate ? t('rewards.unverified') : t('stats.total');
     }
     if (sessionEl) {
       const flag = d.session_is_estimate ? true : 'delta';

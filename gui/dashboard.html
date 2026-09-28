@@ -197,10 +197,10 @@
       const totalEl = document.getElementById('total_points');
       const totalLabel = document.getElementById('total_label');
       const totalSub = document.getElementById('total_sub');
-      totalEl.textContent = (d.is_estimate && d.total_points > 0 ? '~' : '') + fmt(d.total_points);
-      totalLabel.textContent = d.is_estimate ? 'Total points (estimated)' : 'Total points';
+      totalEl.textContent = d.is_estimate ? '—' : fmt(d.total_points);
+      totalLabel.textContent = d.is_estimate ? 'Balance not verified' : 'Total points';
       if (d.is_estimate) {
-        totalSub.textContent = 'Estimated from activity — run with Daily tasks to capture the real balance.';
+        totalSub.textContent = 'Microsoft Rewards balance not verified yet.';
       } else {
         const when = fmt_when(stats.balance && stats.balance.updated_at);
         totalSub.textContent = when ? ('Real balance · updated ' + when) : 'Real balance';
@@ -213,7 +213,7 @@
       const todayEst = d.today_is_estimate != null ? d.today_is_estimate : d.session_is_estimate;
       const sessSign = (!todayEst && todayPts > 0) ? '+' : '';
       const sessPrefix = (todayEst && todayPts > 0) ? '~' : sessSign;
-      sessEl.textContent = sessPrefix + fmt(todayPts);
+      sessEl.textContent = todayEst ? '—' : sessPrefix + fmt(todayPts);
       const day = (stats.daily && d.last_run_date && stats.daily[d.last_run_date]) || {};
       const parts = [];
       if (day.pc) parts.push(day.pc + ' PC');
@@ -391,7 +391,7 @@
 
         const totalTd = document.createElement('td');
         totalTd.className = 'num';
-        totalTd.textContent = (acc.is_estimate && acc.total_points > 0 ? '~' : '') + fmt(acc.total_points);
+        totalTd.textContent = acc.is_estimate ? '—' : fmt(acc.total_points);
 
         const runsTd = document.createElement('td');
         runsTd.className = 'num';

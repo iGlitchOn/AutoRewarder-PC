@@ -2351,10 +2351,11 @@ class AutoRewarderAPI:
         Return the current account's statistics for the dashboard, augmented
         with a couple of derived convenience fields the UI displays directly:
 
-          * total_points — the real scraped balance when available, else the
-            cumulative estimate. `is_estimate` flags which one it is.
-          * session_points — points earned in the last recorded run: the real
-            balance delta when available, otherwise the activity estimate.
+          * total_points — only the real scraped Rewards balance. It is None
+            until Microsoft confirms the balance; activity estimates are not
+            presented as points earned.
+          * session_points — only a real balance delta. It is None when the
+            run could not be verified against Rewards.
 
         Returns None when no account is selected.
         """
@@ -2365,8 +2366,7 @@ class AutoRewarderAPI:
         balance = data["balance"]["current"]
         last = data["last_session"]
         is_estimate = balance is None
-        estimate_total = data["lifetime"]["points_estimate"]
-        total_points = balance if balance is not None else estimate_total
+        total_points = balance
 
         ended_at = last.get("ended_at")
         today = datetime.now().date().isoformat()
@@ -2387,7 +2387,7 @@ class AutoRewarderAPI:
             today_points = int(bucket.get("points_delta") or 0)
             today_is_estimate = False
         else:
-            today_points = int(bucket.get("points_estimate") or today_est)
+            today_points = None
             today_is_estimate = True
         data["derived"] = {
             "total_points": total_points,
@@ -2428,7 +2428,7 @@ class AutoRewarderAPI:
                     "total_points": (
                         balance
                         if balance is not None
-                        else stats["lifetime"]["points_estimate"]
+                        else None
                     ),
                     "is_estimate": balance is None,
                     "lifetime_runs": stats["lifetime"]["runs"],
@@ -2692,8 +2692,9 @@ class AutoRewarderAPI:
             "account": {"id": account_id},
             "profile": profile,
             "estimate": {
-                "search_points": (pc_target + mobile_target) * POINTS_PER_SEARCH,
-                "note": "Search estimate only; Daily tasks and promotions vary by account.",
+                "search_points": None,
+                "verified": False,
+                "note": "Points are shown only after the Rewards balance is verified.",
             },
             "progress": {
                 "pc": self._progress_from_frac(
