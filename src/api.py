@@ -999,7 +999,8 @@ class AutoRewarderAPI:
         return True
 
     def shutdown(self):
-        """Stop a run and kill Edge / tunnel when the window actually closes."""
+        """Close child windows, stop a run, and tear down Edge / tunnel."""
+        self.close_secondary_windows()
         try:
             self.stop()
         except Exception:
@@ -1026,6 +1027,19 @@ class AutoRewarderAPI:
         except Exception:
             pass
         return True
+
+    def close_secondary_windows(self):
+        """Close Statistics and History so no pywebview child survives us."""
+        windows = (self._stats_window, self._history_window)
+        self._stats_window = None
+        self._history_window = None
+        for window in windows:
+            if window is None:
+                continue
+            try:
+                window.destroy()
+            except Exception:
+                pass
 
     def get_schedule(self, account_id):
         """Return a specific account's schedule (defaults merged in)."""

@@ -111,6 +111,10 @@ if __name__ == "__main__":
     # fires on a real close (the tray "hide" path returns from `closing`
     # without closing), so this is the right hook.
     def _destroy_secondary_windows(*_args):
+        try:
+            api.close_secondary_windows()
+        except Exception as e:
+            print(f"[WARNING] Could not close child windows: {e}")
         for other in list(webview.windows):
             if other is not window:
                 try:
