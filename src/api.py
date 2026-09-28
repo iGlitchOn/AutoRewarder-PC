@@ -2371,13 +2371,6 @@ class AutoRewarderAPI:
         ended_at = last.get("ended_at")
         today = datetime.now().date().isoformat()
         bucket = (data.get("daily") or {}).get(today) or {}
-        today_est = (
-            int(bucket.get("pc") or 0) + int(bucket.get("mobile") or 0)
-        ) * POINTS_PER_SEARCH + (
-            int(bucket.get("cards") or 0)
-            + int(bucket.get("earn") or 0)
-            + int(bucket.get("quests") or 0)
-        ) * POINTS_PER_CARD
         start_bal = bucket.get("start_balance")
         end_bal = balance if isinstance(balance, int) else bucket.get("end_balance")
         if isinstance(start_bal, int) and isinstance(end_bal, int):
