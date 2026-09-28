@@ -174,16 +174,12 @@ class DriverManager:
             # otherwise reject SetForegroundWindow after Edge activates.
             current_thread = int(kernel32.GetCurrentThreadId())
             foreground_thread = int(
-                user32.GetWindowThreadProcessId(
-                    ctypes.c_void_p(current_hwnd), None
-                )
+                user32.GetWindowThreadProcessId(ctypes.c_void_p(current_hwnd), None)
             )
             attached = bool(
                 foreground_thread
                 and foreground_thread != current_thread
-                and user32.AttachThreadInput(
-                    foreground_thread, current_thread, True
-                )
+                and user32.AttachThreadInput(foreground_thread, current_thread, True)
             )
             try:
                 user32.SetForegroundWindow(ctypes.c_void_p(int(previous_hwnd)))
@@ -192,16 +188,12 @@ class DriverManager:
                 # foreground lock. SwitchToThisWindow is the reliable fallback
                 # for returning focus after a child browser process starts.
                 try:
-                    user32.SwitchToThisWindow(
-                        ctypes.c_void_p(int(previous_hwnd)), True
-                    )
+                    user32.SwitchToThisWindow(ctypes.c_void_p(int(previous_hwnd)), True)
                 except Exception:
                     pass
             finally:
                 if attached:
-                    user32.AttachThreadInput(
-                        foreground_thread, current_thread, False
-                    )
+                    user32.AttachThreadInput(foreground_thread, current_thread, False)
         except Exception:
             pass
 

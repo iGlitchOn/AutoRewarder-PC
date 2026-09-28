@@ -2425,11 +2425,7 @@ class AutoRewarderAPI:
                 {
                     "id": acc["id"],
                     "label": acc["label"],
-                    "total_points": (
-                        balance
-                        if balance is not None
-                        else None
-                    ),
+                    "total_points": (balance if balance is not None else None),
                     "is_estimate": balance is None,
                     "lifetime_runs": stats["lifetime"]["runs"],
                     "pc_searches": stats["lifetime"]["pc_searches"],
@@ -3485,7 +3481,18 @@ class AutoRewarderAPI:
         checkins = int(self._session_counts.get("checkins") or 0)
         news = int(self._session_counts.get("news") or 0)
         edge_minutes = int(self._session_counts.get("edge_minutes") or 0)
-        if pc + mobile + cards + earn + quests + visual + checkins + news + edge_minutes == 0:
+        if (
+            pc
+            + mobile
+            + cards
+            + earn
+            + quests
+            + visual
+            + checkins
+            + news
+            + edge_minutes
+            == 0
+        ):
             return data
         import copy
 
