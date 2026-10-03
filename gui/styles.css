@@ -338,6 +338,10 @@ button {
   opacity: 0.7;
 }
 
+.account-trigger .account-delete {
+  flex: 0 0 auto;
+}
+
 .account-trigger[aria-expanded="true"] .chev {
   transform: rotate(180deg);
 }

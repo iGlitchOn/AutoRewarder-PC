@@ -62,17 +62,16 @@
     <section class="card account-card">
       <div class="card-label">Account</div>
       <div class="account-picker" id="account_picker">
-        <button class="account-trigger" id="account_trigger" type="button" aria-haspopup="listbox" aria-expanded="false" disabled>
+        <div class="account-trigger" id="account_trigger" role="status">
           <span class="avatar" id="current_avatar" aria-hidden="true">?</span>
           <span class="account-info">
             <span class="account-name" id="current_label">No account</span>
             <span class="account-meta" id="current_meta">Loading…</span>
           </span>
-          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-        <div class="account-menu" id="account_menu" role="listbox" hidden></div>
+          <button class="account-delete icon-btn danger" id="deleteAccountBtn" type="button" aria-label="Delete this account" title="Delete this account" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
+        </div>
       </div>
       <div class="phone-device" id="phone_device_wrap"></div>
     </section>
@@ -218,13 +217,7 @@
       </div>
       <h2 class="empty-title">Welcome to Rewards Control</h2>
       <p class="empty-subtitle">Add your first Microsoft account to get started.</p>
-      <button id="empty_cta" class="primary-btn-lg" type="button">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
-        Create your first account
-      </button>
+      <p class="empty-subtitle">Usa el icono de persona de la parte superior para agregar o administrar cuentas.</p>
     </div>
   </div>
 

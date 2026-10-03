@@ -785,6 +785,7 @@ function render_account_trigger() {
   const labelEl = document.getElementById('current_label');
   const metaEl = document.getElementById('current_meta');
   const trigger = document.getElementById('account_trigger');
+  const deleteBtn = document.getElementById('deleteAccountBtn');
   if (!avatarEl || !labelEl || !metaEl || !trigger) return;
 
   const current = accountsCache.find(a => a.id === currentAccountId);
@@ -794,14 +795,32 @@ function render_account_trigger() {
     avatarEl.style.backgroundColor = avatar_color(current.id);
     labelEl.textContent = current.label;
     metaEl.textContent = current.first_setup_done ? 'Ready to run · by Microsoft' : 'Setup pending · by Microsoft';
-    trigger.disabled = false;
+    if (deleteBtn) deleteBtn.hidden = false;
   } else {
     avatarEl.textContent = '+';
     avatarEl.style.backgroundColor = 'var(--surface-3)';
     labelEl.textContent = 'No account yet';
     metaEl.textContent = accountsCache.length ? 'Select one below' : 'Add your first account';
-    trigger.disabled = accountsCache.length === 0 && false; // keep clickable to open menu
+    if (deleteBtn) deleteBtn.hidden = true;
   }
+}
+
+async function delete_current_account() {
+  const current = accountsCache.find(a => a.id === currentAccountId);
+  if (!current) return;
+  const confirmed = await confirm_modal(
+    `¿Quieres borrar "${current.label}"?`,
+    'Deberás volver a vincular esta cuenta para usarla otra vez. Se eliminarán su perfil, historial y estado de tareas.',
+    { confirmLabel: 'Borrar cuenta', danger: true }
+  );
+  if (!confirmed) return;
+  const deleted = await pywebview.api.delete_account(current.id);
+  if (!deleted) {
+    show_toast('No se pudo borrar la cuenta. Detén la ejecución e inténtalo de nuevo.', 'warning');
+    return;
+  }
+  show_toast(`"${current.label}" fue borrada.`, 'success');
+  refresh_account_ui();
 }
 
 // =========================================================================
@@ -1382,7 +1401,6 @@ function refresh_account_ui() {
     }
 
     render_account_trigger();
-    render_account_menu();
 
     // Empty state overlay.
     const emptyState = document.getElementById('empty_state');
@@ -1487,29 +1505,12 @@ document.addEventListener('DOMContentLoaded', function() {
   const toggle = document.getElementById('hideBrowserToggle');
   if (toggle) toggle.addEventListener('change', hideBrowserToggle);
 
-  // Empty-state CTA.
+  // Empty-state CTA opens the same account manager used by the person icon.
   const cta = document.getElementById('empty_cta');
-  if (cta) cta.addEventListener('click', prompt_and_create_account);
+  if (cta) cta.addEventListener('click', open_accounts_modal);
 
-  // Account trigger opens the custom dropdown.
-  const trigger = document.getElementById('account_trigger');
-  if (trigger) {
-    trigger.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggle_account_menu();
-    });
-  }
-
-  // Click outside closes the dropdown.
-  document.addEventListener('click', (e) => {
-    const picker = document.getElementById('account_picker');
-    if (picker && !picker.contains(e.target)) toggle_account_menu(false);
-  });
-
-  // Escape closes the dropdown.
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') toggle_account_menu(false);
-  });
+  const deleteAccountBtn = document.getElementById('deleteAccountBtn');
+  if (deleteAccountBtn) deleteAccountBtn.addEventListener('click', delete_current_account);
 
   // Header "manage accounts" button.
   const manageBtn = document.getElementById('manageBtn');
