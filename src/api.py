@@ -77,6 +77,9 @@ def _normalize_run_time(value):
     return AUTOSTART_TIME
 
 
+SUPPORTED_UI_LANGUAGES = ("en", "es", "pt", "zh")
+
+
 def _windows_ui_locale():
     try:
         import ctypes
@@ -743,10 +746,10 @@ class AutoRewarderAPI:
         return data
 
     def ui_locale(self):
-        """Resolved UI language: en or es."""
+        """Resolve the complete UI language from the explicit or system locale."""
         settings = self.global_settings.get_settings()
         pref = str(settings.get("ui_language") or "auto").strip().lower()
-        if pref in ("en", "es"):
+        if pref in SUPPORTED_UI_LANGUAGES:
             return pref
         blob = " ".join(
             [
@@ -754,13 +757,14 @@ class AutoRewarderAPI:
                 _windows_ui_locale(),
             ]
         ).lower()
-        if blob.startswith("es") or "es-" in blob or "es_" in blob or "_es" in blob:
-            return "es"
+        for language in SUPPORTED_UI_LANGUAGES:
+            if blob.startswith(language) or f"-{language}" in blob or f"_{language}" in blob:
+                return language
         return "en"
 
     def set_ui_language(self, lang):
         lang = str(lang or "auto").strip().lower()
-        if lang not in ("auto", "en", "es"):
+        if lang not in ("auto", *SUPPORTED_UI_LANGUAGES):
             lang = "auto"
         settings = self.global_settings.settings_for_update()
         settings["ui_language"] = lang

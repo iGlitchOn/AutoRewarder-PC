@@ -25,6 +25,8 @@ const I18N = {
     "settings.language_auto": "Automatic (Windows / region)",
     "settings.language_en": "English",
     "settings.language_es": "Spanish",
+    "settings.language_pt": "Portuguese",
+    "settings.language_zh": "Chinese",
   },
   es: {
     "run.start": "Iniciar",
@@ -51,6 +53,8 @@ const I18N = {
     "settings.language_auto": "Automático (Windows / región)",
     "settings.language_en": "Inglés",
     "settings.language_es": "Español",
+    "settings.language_pt": "Portugués",
+    "settings.language_zh": "Chino",
   },
 };
 
@@ -62,7 +66,7 @@ function t(key) {
 }
 
 function set_ui_lang(lang) {
-  _uiLang = lang === "es" ? "es" : "en";
+  _uiLang = ["en", "es", "pt", "zh"].indexOf(lang) >= 0 ? lang : "en";
   document.documentElement.lang = _uiLang;
   document.querySelectorAll("[data-i18n]").forEach(function (el) {
     const key = el.getAttribute("data-i18n");
@@ -91,12 +95,14 @@ function set_ui_lang(lang) {
 
 function resolve_lang_from_settings(settings) {
   const pref = (settings && settings.ui_language) || "auto";
-  if (pref === "en" || pref === "es") return pref;
+  if (["en", "es", "pt", "zh"].indexOf(pref) >= 0) return pref;
   const blob = String(
     (settings && (settings.windows_locale || settings.detected_locale)) ||
       (typeof navigator !== "undefined" ? navigator.language : "") ||
       ""
   ).toLowerCase();
   if (blob.indexOf("es") === 0 || blob.indexOf("-es") >= 0 || blob.indexOf("_es") >= 0) return "es";
+  if (blob.indexOf("pt") === 0 || blob.indexOf("-pt") >= 0 || blob.indexOf("_pt") >= 0) return "pt";
+  if (blob.indexOf("zh") === 0 || blob.indexOf("-zh") >= 0 || blob.indexOf("_zh") >= 0) return "zh";
   return "en";
 }
