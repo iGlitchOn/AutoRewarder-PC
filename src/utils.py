@@ -4,6 +4,8 @@ import re
 import time
 import random
 import requests
+import os
+import tempfile
 
 from .config import GITHUB_VERSION, REPO
 
@@ -58,15 +60,21 @@ def github_latest_release(repo, logger=None):
         if not tag:
             return None
         assets = data.get("assets") or []
+        downloadable = [
+            item
+            for item in assets
+            if str(item.get("name") or "")
+            .lower()
+            .endswith((".exe", ".msi", ".zip", ".apk"))
+        ]
         asset = next(
             (
                 item
-                for item in assets
-                if str(item.get("name") or "")
-                .lower()
-                .endswith((".exe", ".msi", ".zip", ".apk"))
+                for item in downloadable
+                if "setup" in str(item.get("name") or "").lower()
+                and str(item.get("name") or "").lower().endswith(".exe")
             ),
-            None,
+            downloadable[0] if downloadable else None,
         )
         return {
             "repo": repo,
@@ -81,6 +89,41 @@ def github_latest_release(repo, logger=None):
         if logger:
             logger(f"[WARNING] Could not check GitHub release {repo}: {exc}")
         return None
+
+
+def download_release_asset(url, asset_name, logger=None):
+    """Download a GitHub release installer into a private temporary folder."""
+    safe_name = os.path.basename(str(asset_name or "")).strip()
+    if not safe_name or not safe_name.lower().endswith(".exe"):
+        raise ValueError("La release no contiene un instalador .exe compatible.")
+    if not str(url or "").startswith("https://github.com/"):
+        raise ValueError("La URL de actualización no pertenece a GitHub.")
+
+    folder = tempfile.mkdtemp(prefix="AutoRewarder-update-")
+    target = os.path.join(folder, safe_name)
+    try:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "AutoRewarder-App", "Accept": "application/octet-stream"},
+            stream=True,
+            timeout=(15, 120),
+        )
+        response.raise_for_status()
+        with open(target, "wb") as output:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    output.write(chunk)
+        if os.path.getsize(target) < 1024 * 1024:
+            raise ValueError("El instalador descargado parece incompleto.")
+        return target
+    except Exception:
+        try:
+            if os.path.exists(target):
+                os.remove(target)
+            os.rmdir(folder)
+        except OSError:
+            pass
+        raise
 
 
 def wait_or_stop(seconds, stop_event=None):

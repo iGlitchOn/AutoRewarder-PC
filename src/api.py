@@ -30,7 +30,12 @@ from .config import (
     status_path,
     stats_path,
 )
-from .utils import github_latest_release, release_is_newer, wait_or_stop
+from .utils import (
+    download_release_asset,
+    github_latest_release,
+    release_is_newer,
+    wait_or_stop,
+)
 from .accounts import (
     AccountManager,
     AccountMetaManager,
@@ -693,6 +698,44 @@ class AutoRewarderAPI:
     def open_link(self, url):
         """Open a URL in the system default browser."""
         webbrowser.open(url)
+
+    def download_and_install_update(self, url, asset_name):
+        """Download and silently launch the PC installer without opening a browser."""
+        if platform.system() != "Windows":
+            return {"ok": False, "error": "La actualización integrada solo está disponible en Windows."}
+        try:
+            installer = download_release_asset(url, asset_name, logger=self.log)
+            subprocess.Popen(
+                [
+                    installer,
+                    "/VERYSILENT",
+                    "/SUPPRESSMSGBOXES",
+                    "/NORESTART",
+                    "/CLOSEAPPLICATIONS",
+                    "/RESTARTAPPLICATIONS",
+                ],
+                cwd=os.path.dirname(installer),
+                close_fds=True,
+            )
+        except Exception as exc:
+            self.log(f"[ERROR] Could not download the update: {exc}")
+            return {"ok": False, "error": str(exc)}
+
+        def _exit_for_update():
+            try:
+                self.shutdown()
+            except Exception:
+                pass
+            try:
+                if self._webview_window:
+                    self._webview_window.destroy()
+            except Exception:
+                pass
+            time.sleep(0.5)
+            os._exit(0)
+
+        threading.Thread(target=_exit_for_update, daemon=True).start()
+        return {"ok": True, "restarting": True}
 
     def load_driver_in_background(self):
         """Warmup the WebDriver download, only if an account is selected."""

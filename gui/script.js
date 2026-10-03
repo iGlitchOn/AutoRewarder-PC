@@ -229,14 +229,16 @@ function update_log_once(message) {
 }
 
 let _custom_update_url = '';
+let _custom_update_asset_name = '';
 
-function _update_panel(message, url) {
+function _update_panel(message, url, assetName) {
   const panel = document.getElementById('updates_panel');
   const text = document.getElementById('updates_message');
   const download = document.getElementById('updates_download_btn');
   if (!panel || !text) return;
   text.textContent = message || '';
   _custom_update_url = String(url || '');
+  _custom_update_asset_name = String(assetName || '');
   if (download) {
     download.hidden = !_custom_update_url;
     download.disabled = !_custom_update_url;
@@ -246,6 +248,7 @@ function _update_panel(message, url) {
 
 function cancel_custom_update() {
   _custom_update_url = '';
+  _custom_update_asset_name = '';
   const panel = document.getElementById('updates_panel');
   const download = document.getElementById('updates_download_btn');
   if (download) {
@@ -257,10 +260,17 @@ function cancel_custom_update() {
 
 function download_custom_update() {
   if (!_custom_update_url) return;
-  if (window.pywebview && pywebview.api && typeof pywebview.api.open_link === 'function') {
-    pywebview.api.open_link(_custom_update_url);
+  if (window.pywebview && pywebview.api && typeof pywebview.api.download_and_install_update === 'function') {
+    const button = document.getElementById('updates_download_btn');
+    if (button) { button.disabled = true; button.textContent = 'Downloading…'; }
+    pywebview.api.download_and_install_update(_custom_update_url, _custom_update_asset_name).then(function (result) {
+      if (!result || !result.ok) {
+        _update_panel('No se pudo descargar la actualización: ' + ((result && result.error) || 'error desconocido.'), '');
+      }
+    }).catch(function (error) {
+      _update_panel('No se pudo descargar la actualización: ' + (error && error.message ? error.message : 'error desconocido.'), '');
+    });
   }
-  cancel_custom_update();
 }
 
 function show_update_notice(result, manual) {
@@ -272,7 +282,7 @@ function show_update_notice(result, manual) {
     update_log_once('Hay una nueva versión del repositorio original (' + original.tag + '). Notifica al desarrollador; no se instalará automáticamente.');
   }
   if (custom) {
-    _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', custom.download_url || custom.url);
+    _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', custom.download_url, custom.asset_name);
   } else if (manual) {
     _update_panel('No hay una actualización propia disponible.', '');
     setTimeout(cancel_custom_update, 4000);
