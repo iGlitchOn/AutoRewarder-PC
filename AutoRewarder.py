@@ -22,6 +22,10 @@ import threading
 import traceback
 from datetime import datetime
 
+_SINGLE_INSTANCE_HANDLE = None
+_SINGLE_INSTANCE_MUTEX = "Local\\AutoRewarder.GUI.SingleInstance"
+_WINDOW_TITLE = "Rewards Control"
+
 
 def _boot_log(message):
     try:
@@ -43,6 +47,60 @@ def _install_crash_log():
         hook(args.exc_type, args.exc_value, args.exc_traceback)
 
     threading.excepthook = thread_hook
+
+
+def _show_existing_window():
+    """Restore and focus the already-running desktop window on Windows."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.FindWindowW.restype = wintypes.HWND
+        hwnd = user32.FindWindowW(None, _WINDOW_TITLE)
+        if not hwnd:
+            return False
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE, including windows hidden to tray.
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception as exc:
+        _boot_log(f"single-instance focus failed: {exc}")
+        return False
+
+
+def _acquire_gui_instance():
+    """Return False when another GUI instance owns the named Windows mutex."""
+    global _SINGLE_INSTANCE_HANDLE
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [
+            wintypes.LPVOID,
+            wintypes.BOOL,
+            wintypes.LPCWSTR,
+        ]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_MUTEX)
+        if not handle:
+            _boot_log(f"single-instance mutex failed: {ctypes.get_last_error()}")
+            return True
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+            kernel32.CloseHandle(handle)
+            _show_existing_window()
+            return False
+        _SINGLE_INSTANCE_HANDLE = handle
+        return True
+    except Exception as exc:
+        _boot_log(f"single-instance guard failed: {exc}")
+        return True
 
 
 if __name__ == "__main__":
@@ -81,6 +139,9 @@ if __name__ == "__main__":
         headless_main()
         sys.exit(0)
 
+    if not _acquire_gui_instance():
+        sys.exit(0)
+
     # GUI path — import webview + the API lazily so the headless path doesn't
     # pay for the pywebview import cost.
     import webview
@@ -92,7 +153,7 @@ if __name__ == "__main__":
     if args.from_login:
         api.enable_login_autorun()
     window = webview.create_window(
-        title="Rewards Control",
+        title=_WINDOW_TITLE,
         url=os.path.join(GUI_DIR, "index.html"),
         js_api=api,
         width=680,
