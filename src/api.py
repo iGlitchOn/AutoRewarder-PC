@@ -32,7 +32,10 @@ from .config import (
 )
 from .utils import (
     download_release_asset,
+    extract_release_package,
+    find_release_file,
     github_latest_release,
+    is_portable_install,
     release_is_newer,
     wait_or_stop,
 )
@@ -700,26 +703,72 @@ class AutoRewarderAPI:
         webbrowser.open(url)
 
     def download_and_install_update(self, url, asset_name):
-        """Download and silently launch the PC installer without opening a browser."""
+        """Download and apply the matching normal or portable PC package."""
         if platform.system() != "Windows":
             return {
                 "ok": False,
                 "error": "La actualización integrada solo está disponible en Windows.",
             }
         try:
-            installer = download_release_asset(url, asset_name, logger=self.log)
-            subprocess.Popen(
-                [
-                    installer,
-                    "/VERYSILENT",
-                    "/SUPPRESSMSGBOXES",
-                    "/NORESTART",
-                    "/CLOSEAPPLICATIONS",
-                    "/RESTARTAPPLICATIONS",
-                ],
-                cwd=os.path.dirname(installer),
-                close_fds=True,
-            )
+            package = download_release_asset(url, asset_name, logger=self.log)
+            root = extract_release_package(package)
+            if is_portable_install():
+                source = find_release_file(root, "AutoRewarder-Portable.exe")
+                if not source:
+                    raise ValueError(
+                        "El paquete portable no contiene AutoRewarder-Portable.exe."
+                    )
+                target_dir = os.path.dirname(sys.executable)
+                script = os.path.join(root, "apply-portable-update.cmd")
+                with open(script, "w", encoding="utf-8") as output:
+                    output.write(
+                        "@echo off\n"
+                        "timeout /t 2 /nobreak >nul\n"
+                        f'robocopy "{os.path.dirname(source)}" "{target_dir}" /E /NFL /NDL /NJH /NJS /NC /NS /XD config\n'
+                        f'rmdir /s /q "{root}"\n'
+                        'del "%~f0"\n'
+                    )
+                subprocess.Popen(["cmd", "/c", script], cwd=root, close_fds=True)
+            else:
+                installer = find_release_file(root, "AutoRewarder-Setup.exe")
+                if installer:
+                    subprocess.Popen(
+                        [
+                            installer,
+                            "/VERYSILENT",
+                            "/SUPPRESSMSGBOXES",
+                            "/NORESTART",
+                            "/CLOSEAPPLICATIONS",
+                            "/RESTARTAPPLICATIONS",
+                        ],
+                        cwd=os.path.dirname(installer),
+                        close_fds=True,
+                    )
+                else:
+                    source = find_release_file(root, "AutoRewarder.exe")
+                    if not source:
+                        raise ValueError(
+                            "El paquete normal no contiene un instalador válido."
+                        )
+                    target_dir = os.path.dirname(sys.executable)
+                    script = os.path.join(root, "apply-normal-update.ps1")
+                    with open(script, "w", encoding="utf-8") as output:
+                        output.write(
+                            "$ErrorActionPreference = 'Stop'\n"
+                            "Start-Sleep -Seconds 2\n"
+                            f"Copy-Item -LiteralPath '{os.path.dirname(source)}\\*' -Destination '{target_dir}' -Recurse -Force\n"
+                            f"Remove-Item -LiteralPath '{root}' -Recurse -Force\n"
+                        )
+                    safe_script = script.replace("'", "''")
+                    command = (
+                        "Start-Process powershell.exe -Verb RunAs -ArgumentList "
+                        f"'-NoProfile','-ExecutionPolicy','Bypass','-File','{safe_script}'"
+                    )
+                    subprocess.Popen(
+                        ["powershell.exe", "-NoProfile", "-Command", command],
+                        cwd=root,
+                        close_fds=True,
+                    )
         except Exception as exc:
             self.log(f"[ERROR] Could not download the update: {exc}")
             return {"ok": False, "error": str(exc)}

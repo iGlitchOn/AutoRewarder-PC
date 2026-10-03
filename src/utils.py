@@ -6,6 +6,8 @@ import random
 import requests
 import os
 import tempfile
+import sys
+import zipfile
 
 from .config import GITHUB_VERSION, REPO
 
@@ -67,12 +69,14 @@ def github_latest_release(repo, logger=None):
             .lower()
             .endswith((".exe", ".msi", ".zip", ".apk"))
         ]
+        portable = is_portable_install()
+        wanted = "portable" if portable else "windows"
         asset = next(
             (
                 item
                 for item in downloadable
-                if "setup" in str(item.get("name") or "").lower()
-                and str(item.get("name") or "").lower().endswith(".exe")
+                if wanted in str(item.get("name") or "").lower()
+                and (portable or "portable" not in str(item.get("name") or "").lower())
             ),
             downloadable[0] if downloadable else None,
         )
@@ -92,10 +96,10 @@ def github_latest_release(repo, logger=None):
 
 
 def download_release_asset(url, asset_name, logger=None):
-    """Download a GitHub release installer into a private temporary folder."""
+    """Download a GitHub release package into a private temporary folder."""
     safe_name = os.path.basename(str(asset_name or "")).strip()
-    if not safe_name or not safe_name.lower().endswith(".exe"):
-        raise ValueError("La release no contiene un instalador .exe compatible.")
+    if not safe_name or not safe_name.lower().endswith((".exe", ".zip")):
+        raise ValueError("La release no contiene un paquete .exe o .zip compatible.")
     if not str(url or "").startswith("https://github.com/"):
         raise ValueError("La URL de actualización no pertenece a GitHub.")
 
@@ -127,6 +131,32 @@ def download_release_asset(url, asset_name, logger=None):
         except OSError:
             pass
         raise
+
+
+def is_portable_install():
+    """Return whether the running frozen app stores data beside its executable."""
+    if not getattr(sys, "frozen", False):
+        return False
+    return os.path.isdir(os.path.join(os.path.dirname(sys.executable), "config"))
+
+
+def extract_release_package(package_path):
+    """Extract a ZIP release and return its temporary root directory."""
+    if not package_path.lower().endswith(".zip"):
+        return os.path.dirname(package_path)
+    root = tempfile.mkdtemp(prefix="AutoRewarder-release-")
+    with zipfile.ZipFile(package_path) as archive:
+        archive.extractall(root)
+    return root
+
+
+def find_release_file(root, suffix):
+    """Find the first release file with the requested suffix."""
+    for current, _dirs, files in os.walk(root):
+        for name in files:
+            if name.lower().endswith(suffix.lower()):
+                return os.path.join(current, name)
+    return ""
 
 
 def wait_or_stop(seconds, stop_event=None):
