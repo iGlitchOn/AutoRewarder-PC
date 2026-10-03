@@ -702,7 +702,10 @@ class AutoRewarderAPI:
     def download_and_install_update(self, url, asset_name):
         """Download and silently launch the PC installer without opening a browser."""
         if platform.system() != "Windows":
-            return {"ok": False, "error": "La actualización integrada solo está disponible en Windows."}
+            return {
+                "ok": False,
+                "error": "La actualización integrada solo está disponible en Windows.",
+            }
         try:
             installer = download_release_asset(url, asset_name, logger=self.log)
             subprocess.Popen(
@@ -801,7 +804,11 @@ class AutoRewarderAPI:
             ]
         ).lower()
         for language in SUPPORTED_UI_LANGUAGES:
-            if blob.startswith(language) or f"-{language}" in blob or f"_{language}" in blob:
+            if (
+                blob.startswith(language)
+                or f"-{language}" in blob
+                or f"_{language}" in blob
+            ):
                 return language
         return "en"
 

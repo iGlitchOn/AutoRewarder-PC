@@ -104,7 +104,10 @@ def download_release_asset(url, asset_name, logger=None):
     try:
         response = requests.get(
             url,
-            headers={"User-Agent": "AutoRewarder-App", "Accept": "application/octet-stream"},
+            headers={
+                "User-Agent": "AutoRewarder-App",
+                "Accept": "application/octet-stream",
+            },
             stream=True,
             timeout=(15, 120),
         )
