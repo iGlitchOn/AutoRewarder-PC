@@ -11,7 +11,7 @@
     body {
       display: grid;
       place-items: center;
-      background: #1f1f23;
+      background: transparent;
       font-family: "Segoe UI", Arial, sans-serif;
       color: #f2f3f5;
     }
@@ -22,40 +22,54 @@
       text-align: center;
       border-radius: 12px;
       background: #2b2d31;
+      border: 1px solid #42444b;
       box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
     }
-    .logo-tile {
+    .logo-stage {
+      position: relative;
       width: 104px;
-      height: 88px;
+      height: 104px;
       margin: 0 auto 22px;
       display: grid;
       place-items: center;
-      border-radius: 18px;
-      background: #5865f2;
-      box-shadow: 0 8px 20px rgba(88, 101, 242, .28);
-      animation: tile-breathe 2.2s ease-in-out infinite;
+      border-radius: 50%;
+      background: #363940;
+      border: 1px solid #4a4d55;
+      box-shadow: 0 0 0 8px rgba(88, 101, 242, .05), 0 10px 22px rgba(0, 0, 0, .22);
+      animation: stage-breathe 2.6s ease-in-out infinite;
     }
     .logo {
-      width: 58px;
-      height: 58px;
+      position: relative;
+      z-index: 2;
+      width: 72px;
+      height: 72px;
       object-fit: contain;
-      animation: logo-float 1.8s ease-in-out infinite;
+      animation: logo-float 2.4s ease-in-out infinite;
     }
+    .orbit { position: absolute; inset: 10px; border: 1px solid rgba(88, 101, 242, .7); border-left-color: transparent; border-radius: 50%; animation: orbit-spin 2.8s linear infinite; }
+    .orbit::after { content: ""; position: absolute; top: -3px; left: 50%; width: 6px; height: 6px; border-radius: 50%; background: #7280ff; box-shadow: 0 0 10px #5865f2; }
+    .loading-dots { height: 10px; margin-top: 14px; }
+    .loading-dots i { display: inline-block; width: 5px; height: 5px; margin: 0 3px; border-radius: 50%; background: #7280ff; animation: dot-pulse 1.2s ease-in-out infinite; }
+    .loading-dots i:nth-child(2) { animation-delay: .16s; }
+    .loading-dots i:nth-child(3) { animation-delay: .32s; }
     h1 { margin: 0; font-size: 16px; font-weight: 600; }
     #stage { margin: 16px 0 17px; font-size: 14px; font-weight: 700; }
     #detail { margin: 14px 0 0; color: #b5bac1; font-size: 12px; }
     .track { height: 6px; overflow: hidden; border-radius: 999px; background: #484b51; }
     #bar { width: 2%; height: 100%; border-radius: inherit; background: #5865f2; transition: width .24s ease; }
-    @keyframes tile-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-    @keyframes logo-float { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-4px) rotate(2deg); } }
+    @keyframes stage-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+    @keyframes logo-float { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-5px) rotate(3deg); } }
+    @keyframes orbit-spin { to { transform: rotate(360deg); } }
+    @keyframes dot-pulse { 0%, 100% { opacity: .35; transform: translateY(0) scale(.8); } 50% { opacity: 1; transform: translateY(-3px) scale(1); } }
   </style>
 </head>
 <body>
   <main class="card" aria-live="polite">
-    <div class="logo-tile"><img class="logo" src="../assets/icon.ico" alt="AutoRewarder"></div>
+    <div class="logo-stage"><span class="orbit" aria-hidden="true"></span><img class="logo" src="autorewarder-icon.ico" alt="AutoRewarder"></div>
     <h1 id="title">Updating AutoRewarder</h1>
     <p id="stage">Closing AutoRewarder…</p>
     <div class="track"><div id="bar"></div></div>
+    <div class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></div>
     <p id="detail">The new version will open automatically.</p>
   </main>
   <script>

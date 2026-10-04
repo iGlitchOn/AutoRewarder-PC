@@ -866,6 +866,8 @@ class AutoRewarderAPI:
             frameless=True,
             easy_drag=False,
             on_top=True,
+            shadow=False,
+            transparent=True,
             background_color="#0b0d12",
         )
         try:
