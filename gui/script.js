@@ -231,6 +231,38 @@ function update_log_once(message) {
 let _custom_update_url = '';
 let _custom_update_asset_name = '';
 
+const UPDATE_STAGES = {
+  downloading: 'update.downloading',
+  installing: 'update.installing',
+  replacing: 'update.replacing',
+  cleaning: 'update.cleaning',
+  finished: 'update.finished',
+};
+
+function show_update_modal() {
+  const modal = document.getElementById('update_modal');
+  if (!modal) return;
+  modal.hidden = false;
+  document.body.classList.add('update-in-progress');
+  update_update_progress('downloading', 0);
+}
+
+function update_update_progress(stage, progress) {
+  const modal = document.getElementById('update_modal');
+  const label = document.getElementById('update_modal_stage');
+  const bar = document.getElementById('update_progress_bar');
+  if (!modal || !label) return;
+  modal.hidden = false;
+  const key = UPDATE_STAGES[stage] || 'update.installing';
+  label.textContent = typeof t === 'function' ? t(key) : stage;
+  if (bar) {
+    const stageBase = { downloading: 0, installing: 35, replacing: 65, cleaning: 85, finished: 100 }[stage] || 0;
+    const fraction = typeof progress === 'number' ? progress : 0;
+    const value = stage === 'downloading' ? Math.min(35, fraction * 35) : Math.max(stageBase, stageBase + fraction * 15);
+    bar.style.width = `${Math.round(value)}%`;
+  }
+}
+
 function _update_panel(message, url, assetName) {
   const panel = document.getElementById('updates_panel');
   const text = document.getElementById('updates_message');
@@ -261,13 +293,20 @@ function cancel_custom_update() {
 function download_custom_update() {
   if (!_custom_update_url) return;
   if (window.pywebview && pywebview.api && typeof pywebview.api.download_and_install_update === 'function') {
+    show_update_modal();
     const button = document.getElementById('updates_download_btn');
-    if (button) { button.disabled = true; button.textContent = 'Downloading…'; }
+    if (button) { button.disabled = true; button.textContent = t('update.downloading'); }
     pywebview.api.download_and_install_update(_custom_update_url, _custom_update_asset_name).then(function (result) {
       if (!result || !result.ok) {
+        const modal = document.getElementById('update_modal');
+        if (modal) modal.hidden = true;
+        document.body.classList.remove('update-in-progress');
         _update_panel('No se pudo descargar la actualización: ' + ((result && result.error) || 'error desconocido.'), '');
       }
     }).catch(function (error) {
+      const modal = document.getElementById('update_modal');
+      if (modal) modal.hidden = true;
+      document.body.classList.remove('update-in-progress');
       _update_panel('No se pudo descargar la actualización: ' + (error && error.message ? error.message : 'error desconocido.'), '');
     });
   }

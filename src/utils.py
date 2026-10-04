@@ -95,7 +95,7 @@ def github_latest_release(repo, logger=None):
         return None
 
 
-def download_release_asset(url, asset_name, logger=None):
+def download_release_asset(url, asset_name, logger=None, progress=None):
     """Download a GitHub release package into a private temporary folder."""
     safe_name = os.path.basename(str(asset_name or "")).strip()
     if not safe_name or not safe_name.lower().endswith((".exe", ".zip")):
@@ -116,10 +116,15 @@ def download_release_asset(url, asset_name, logger=None):
             timeout=(15, 120),
         )
         response.raise_for_status()
+        total = int(response.headers.get("content-length") or 0)
+        downloaded = 0
         with open(target, "wb") as output:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if chunk:
                     output.write(chunk)
+                    downloaded += len(chunk)
+                    if progress:
+                        progress(downloaded, total)
         if os.path.getsize(target) < 1024 * 1024:
             raise ValueError("El instalador descargado parece incompleto.")
         return target

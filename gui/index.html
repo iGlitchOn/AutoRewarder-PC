@@ -50,6 +50,20 @@
       </span>
     </div>
 
+    <div id="update_modal" class="update-modal-backdrop" hidden>
+      <section class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update_modal_title">
+        <div class="update-logo-wrap">
+          <img class="update-logo" src="../assets/icon.ico" alt="AutoRewarder">
+        </div>
+        <h2 id="update_modal_title" class="update-modal-title" data-i18n="update.title">Updating AutoRewarder</h2>
+        <p id="update_modal_stage" class="update-modal-stage" data-i18n="update.downloading">Downloading…</p>
+        <div class="update-progress-track" aria-hidden="true">
+          <div id="update_progress_bar" class="update-progress-bar"></div>
+        </div>
+        <p id="update_modal_detail" class="update-modal-detail" data-i18n="update.detail">Please keep AutoRewarder open.</p>
+      </section>
+    </div>
+
     <nav class="app-tabs" role="tablist" aria-label="Main">
       <button type="button" class="app-tab is-active" id="tab_btn_run" role="tab" aria-selected="true" onclick="switch_app_tab('run')">Run</button>
       <button type="button" class="app-tab" id="tab_btn_manual" role="tab" aria-selected="false" onclick="switch_app_tab('manual')">

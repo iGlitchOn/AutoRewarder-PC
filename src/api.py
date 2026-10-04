@@ -7,6 +7,7 @@ import time
 import json
 import math
 import random
+import ctypes
 import platform
 import subprocess
 import threading
@@ -710,25 +711,38 @@ class AutoRewarderAPI:
                 "error": "La actualización integrada solo está disponible en Windows.",
             }
         try:
-            package = download_release_asset(url, asset_name, logger=self.log)
+            self._report_update_progress("downloading", 0)
+            package = download_release_asset(
+                url,
+                asset_name,
+                logger=self.log,
+                progress=lambda done, total: self._report_update_progress(
+                    "downloading", (done / total) if total else None
+                ),
+            )
+            self._report_update_progress("installing", 0.15)
             root = extract_release_package(package)
+            self._report_update_progress("installing", 0.35)
+            target_dir = os.path.dirname(sys.executable)
+            target_name = os.path.basename(sys.executable)
             if is_portable_install():
                 source = find_release_file(root, "AutoRewarder-Portable.exe")
                 if not source:
                     raise ValueError(
                         "El paquete portable no contiene AutoRewarder-Portable.exe."
                     )
-                target_dir = os.path.dirname(sys.executable)
                 script = os.path.join(root, "apply-portable-update.cmd")
                 with open(script, "w", encoding="utf-8") as output:
                     output.write(
                         "@echo off\n"
                         "timeout /t 2 /nobreak >nul\n"
-                        f'robocopy "{os.path.dirname(source)}" "{target_dir}" /E /NFL /NDL /NJH /NJS /NC /NS /XD config\n'
+                        f'robocopy "{os.path.dirname(source)}" "{target_dir}" /E /PURGE /NFL /NDL /NJH /NJS /NC /NS /XD config >nul\n'
+                        f'start "" "{os.path.join(target_dir, target_name)}"\n'
                         f'rmdir /s /q "{root}"\n'
                         'del "%~f0"\n'
                     )
-                subprocess.Popen(["cmd", "/c", script], cwd=root, close_fds=True)
+                self._report_update_progress("replacing", 0.65)
+                self._launch_hidden_helper(script, root)
             else:
                 installer = find_release_file(root, "AutoRewarder-Setup.exe")
                 if installer:
@@ -750,25 +764,19 @@ class AutoRewarderAPI:
                         raise ValueError(
                             "El paquete normal no contiene un instalador válido."
                         )
-                    target_dir = os.path.dirname(sys.executable)
-                    script = os.path.join(root, "apply-normal-update.ps1")
+                    script = os.path.join(root, "apply-normal-update.cmd")
                     with open(script, "w", encoding="utf-8") as output:
                         output.write(
-                            "$ErrorActionPreference = 'Stop'\n"
-                            "Start-Sleep -Seconds 2\n"
-                            f"Copy-Item -LiteralPath '{os.path.dirname(source)}\\*' -Destination '{target_dir}' -Recurse -Force\n"
-                            f"Remove-Item -LiteralPath '{root}' -Recurse -Force\n"
+                            "@echo off\n"
+                            "timeout /t 2 /nobreak >nul\n"
+                            f'robocopy "{os.path.dirname(source)}" "{target_dir}" /E /PURGE /NFL /NDL /NJH /NJS /NC /NS >nul\n'
+                            f'start "" "{os.path.join(target_dir, target_name)}"\n'
+                            f'rmdir /s /q "{root}"\n'
+                            'del "%~f0"\n'
                         )
-                    safe_script = script.replace("'", "''")
-                    command = (
-                        "Start-Process powershell.exe -Verb RunAs -ArgumentList "
-                        f"'-NoProfile','-ExecutionPolicy','Bypass','-File','{safe_script}'"
-                    )
-                    subprocess.Popen(
-                        ["powershell.exe", "-NoProfile", "-Command", command],
-                        cwd=root,
-                        close_fds=True,
-                    )
+                    self._report_update_progress("replacing", 0.65)
+                    self._launch_elevated_helper(script, root)
+            self._report_update_progress("cleaning", 0.85)
         except Exception as exc:
             self.log(f"[ERROR] Could not download the update: {exc}")
             return {"ok": False, "error": str(exc)}
@@ -783,11 +791,50 @@ class AutoRewarderAPI:
                     self._webview_window.destroy()
             except Exception:
                 pass
-            time.sleep(0.5)
+            self._report_update_progress("finished", 1.0)
+            time.sleep(0.8)
             os._exit(0)
 
         threading.Thread(target=_exit_for_update, daemon=True).start()
         return {"ok": True, "restarting": True}
+
+    def _report_update_progress(self, stage, progress=None):
+        """Push updater progress into the in-app modal while it is visible."""
+        if not self._webview_window:
+            return
+        try:
+            self._webview_window.evaluate_js(
+                "update_update_progress(%s, %s)"
+                % (json.dumps(stage), json.dumps(progress))
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _hidden_startupinfo():
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        return startupinfo
+
+    def _launch_hidden_helper(self, script, cwd):
+        subprocess.Popen(
+            ["cmd.exe", "/d", "/c", script],
+            cwd=cwd,
+            startupinfo=self._hidden_startupinfo(),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True,
+        )
+
+    def _launch_elevated_helper(self, script, cwd):
+        params = f'/d /c "{script}"'
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", "cmd.exe", params, cwd, 0
+        )
+        if result <= 32:
+            raise OSError(
+                "Windows no pudo iniciar el proceso de actualización elevado."
+            )
 
     def load_driver_in_background(self):
         """Warmup the WebDriver download, only if an account is selected."""
