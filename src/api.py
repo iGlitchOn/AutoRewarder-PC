@@ -808,7 +808,41 @@ class AutoRewarderAPI:
         return {"ok": True, "restarting": True}
 
     def open_update_window(self, url, asset_name):
-        """Open the borderless update window and hide the main UI."""
+        """Launch the external updater, then close this process cleanly.
+
+        The updater is a separate executable so it can replace this program's
+        files after the main process has exited. Older installations may not
+        contain that helper yet; they keep the previous in-process fallback
+        until the first external update installs it.
+        """
+        helper = os.path.join(os.path.dirname(sys.executable), "AutoRewarder-Updater.exe")
+        if os.path.isfile(helper):
+            language = self.ui_locale()
+            subprocess.Popen(
+                [
+                    helper,
+                    "--url",
+                    str(url or ""),
+                    "--asset",
+                    str(asset_name or ""),
+                    "--parent-pid",
+                    str(os.getpid()),
+                    "--language",
+                    language,
+                    "--target",
+                    sys.executable,
+                ],
+                cwd=os.path.dirname(sys.executable),
+                close_fds=True,
+            )
+            threading.Thread(
+                target=self._close_for_external_update,
+                daemon=True,
+                name="external-update-exit",
+            ).start()
+            return {"ok": True, "external": True}
+
+        # Compatibility path for v4.3.60 and older installations.
         import webview
 
         self._pending_update = {
@@ -838,6 +872,19 @@ class AutoRewarderAPI:
         except Exception:
             pass
         return {"ok": True}
+
+    def _close_for_external_update(self):
+        time.sleep(0.25)
+        try:
+            self.shutdown()
+        except Exception:
+            pass
+        try:
+            if self._webview_window:
+                self._webview_window.destroy()
+        except Exception:
+            pass
+        os._exit(0)
 
     def get_pending_update(self):
         return dict(self._pending_update or {})

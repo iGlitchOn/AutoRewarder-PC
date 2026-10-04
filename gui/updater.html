@@ -8,59 +8,82 @@
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-    body { display: grid; place-items: center; background: #0b0d12; font-family: "Segoe UI", Arial, sans-serif; color: #f1f5fb; }
-    .card { width: 310px; min-height: 278px; padding: 28px 28px 24px; text-align: center; border: 1px solid #30445f; border-radius: 14px; background: #17263a; box-shadow: 0 18px 45px rgba(0,0,0,.35); }
-    .logo-wrap { width: 82px; height: 82px; margin: 0 auto 18px; display: grid; place-items: center; border: 1px solid #30445f; border-radius: 50%; background: #1d3049; animation: spin 2.2s linear infinite; }
-    .logo { width: 56px; height: 56px; object-fit: contain; }
+    body {
+      display: grid;
+      place-items: center;
+      background: #1f1f23;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #f2f3f5;
+    }
+    .card {
+      width: 296px;
+      min-height: 318px;
+      padding: 30px 28px 25px;
+      text-align: center;
+      border-radius: 12px;
+      background: #2b2d31;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
+    }
+    .logo-tile {
+      width: 104px;
+      height: 88px;
+      margin: 0 auto 22px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background: #5865f2;
+      box-shadow: 0 8px 20px rgba(88, 101, 242, .28);
+      animation: tile-breathe 2.2s ease-in-out infinite;
+    }
+    .logo {
+      width: 58px;
+      height: 58px;
+      object-fit: contain;
+      animation: logo-float 1.8s ease-in-out infinite;
+    }
     h1 { margin: 0; font-size: 16px; font-weight: 600; }
-    #stage { margin: 12px 0 16px; font-size: 14px; font-weight: 700; }
-    #detail { margin: 12px 0 0; color: #9eafc5; font-size: 12px; }
-    .track { height: 6px; overflow: hidden; border-radius: 999px; background: #30445f; }
-    #bar { width: 3%; height: 100%; border-radius: inherit; background: #28c6d7; transition: width .2s ease; }
-    @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+    #stage { margin: 16px 0 17px; font-size: 14px; font-weight: 700; }
+    #detail { margin: 14px 0 0; color: #b5bac1; font-size: 12px; }
+    .track { height: 6px; overflow: hidden; border-radius: 999px; background: #484b51; }
+    #bar { width: 2%; height: 100%; border-radius: inherit; background: #5865f2; transition: width .24s ease; }
+    @keyframes tile-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+    @keyframes logo-float { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-4px) rotate(2deg); } }
   </style>
 </head>
 <body>
   <main class="card" aria-live="polite">
-      <div class="logo-wrap"><img class="logo" src="../assets/icon.ico" alt="AutoRewarder"></div>
+    <div class="logo-tile"><img class="logo" src="../assets/icon.ico" alt="AutoRewarder"></div>
     <h1 id="title">Updating AutoRewarder</h1>
-    <p id="stage">Downloading…</p>
+    <p id="stage">Closing AutoRewarder…</p>
     <div class="track"><div id="bar"></div></div>
-    <p id="detail">Please keep AutoRewarder open.</p>
+    <p id="detail">The new version will open automatically.</p>
   </main>
   <script>
     const COPY = {
-      en: { title: "Updating AutoRewarder", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Finished", detail: "Please keep AutoRewarder open.", error: "The update could not be installed." },
-      es: { title: "Actualizando AutoRewarder", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Finalizado", detail: "Mantén AutoRewarder abierto.", error: "No se pudo instalar la actualización." },
-      pt: { title: "Atualizando o AutoRewarder", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Concluído", detail: "Mantenha o AutoRewarder aberto.", error: "Não foi possível instalar a atualização." },
-      zh: { title: "正在更新 AutoRewarder", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "已完成", detail: "请保持 AutoRewarder 开启。", error: "无法安装更新。" }
+      en: { title: "Updating AutoRewarder", closing: "Closing AutoRewarder…", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Opening the new version…", detail: "The new version will open automatically.", error: "The update could not be installed." },
+      es: { title: "Actualizando AutoRewarder", closing: "Cerrando AutoRewarder…", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Abriendo la nueva versión…", detail: "La nueva versión se abrirá automáticamente.", error: "No se pudo instalar la actualización." },
+      pt: { title: "Atualizando o AutoRewarder", closing: "Fechando o AutoRewarder…", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Abrindo a nova versão…", detail: "A nova versão será aberta automaticamente.", error: "Não foi possível instalar a atualização." },
+      zh: { title: "正在更新 AutoRewarder", closing: "正在关闭 AutoRewarder…", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "正在打开新版本…", detail: "新版本会自动打开。", error: "无法安装更新。" }
     };
     let lang = "en";
     function copy(key) { return (COPY[lang] || COPY.en)[key] || COPY.en[key]; }
-    function render(stage, progress) {
+    function render(stage, progress, detail) {
       document.getElementById("title").textContent = copy("title");
-      document.getElementById("stage").textContent = copy(stage || "installing");
-      document.getElementById("detail").textContent = copy("detail");
-      const base = { downloading: 0, installing: 35, replacing: 65, cleaning: 85, finished: 100 }[stage] || 0;
+      document.getElementById("stage").textContent = stage === "error" ? copy("error") : copy(stage || "installing");
+      document.getElementById("detail").textContent = detail || copy("detail");
+      const base = { closing: 0, downloading: 5, installing: 35, replacing: 65, cleaning: 85, finished: 100 }[stage] || 0;
       const fraction = typeof progress === "number" ? progress : 0;
-      const value = stage === "downloading" ? Math.min(35, fraction * 35) : Math.max(base, base + fraction * 15);
+      const value = stage === "downloading" ? Math.min(35, 5 + fraction * 30) : Math.max(base, base + fraction * 15);
       document.getElementById("bar").style.width = Math.round(value) + "%";
     }
-    function update_progress(stage, progress) { render(stage, progress); }
+    function update_progress(stage, progress, detail) { render(stage, progress, detail); }
     window.addEventListener("pywebviewready", function () {
       pywebview.api.get_settings().then(function (settings) {
         lang = settings.ui_locale || "en";
-        render("downloading", 0);
-        return pywebview.api.start_pending_update();
-      }).then(function (result) {
-        if (!result || !result.ok) {
-          document.getElementById("stage").textContent = copy("error");
-          document.getElementById("detail").textContent = (result && result.error) || copy("detail");
-          return pywebview.api.restore_after_update_error();
-        }
-      }).catch(function () {
-        document.getElementById("stage").textContent = copy("error");
-        pywebview.api.restore_after_update_error();
+        render("closing", 0);
+        return pywebview.api.start_update();
+      }).catch(function (error) {
+        render("error", 0, error && error.message ? error.message : copy("detail"));
       });
     });
   </script>
