@@ -1670,8 +1670,9 @@ window.addEventListener('pywebviewready', function() {
   setup_activity_context_menu();
   refresh_manual_tasks();
   refresh_phone_ui();
-  // Refresh quests while either app tab is open; the API is single-flight.
-  setInterval(refresh_manual_tasks, 15000);
+  // This performs a live /earn scrape, so rapid polling would keep opening
+  // short-lived Edge processes and make the whole app feel slow.
+  setInterval(refresh_manual_tasks, 300000);
   setInterval(function () {
     const modal = document.getElementById('phone_pair_modal');
     if (modal && !modal.hidden) refresh_phone_ui();

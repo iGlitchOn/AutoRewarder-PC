@@ -146,6 +146,8 @@ class AutoRewarderAPI:
         # same Edge profile as balance refreshes and scheduled runs.
         self._manual_refresh_lock = threading.Lock()
         self._manual_refreshing = False
+        # Prevent UI polling from starting a new Edge for every For you check.
+        self._manual_last_refresh_at = {}
         # Set when the user clicks Stop. Long loops in search_engine and
         # daily_set poll this between iterations and bail out cleanly.
         self._stop_event = threading.Event()
@@ -481,11 +483,10 @@ class AutoRewarderAPI:
             threading.Thread(target=self.load_driver_in_background, daemon=True).start()
 
     def start_points_refresh(self):
-        """Start the continuous background Rewards balance refresh once."""
+        """Keep points refresh explicit instead of launching idle Edge copies."""
         if self._points_refresh_thread_started:
             return
         self._points_refresh_thread_started = True
-        threading.Thread(target=self._points_refresh_loop, daemon=True).start()
 
     def _points_refresh_loop(self):
         """Keep the real points balance fresh both inside and outside runs."""
@@ -3042,10 +3043,14 @@ class AutoRewarderAPI:
             or self.is_driver_loading
         ):
             return data
+        now = time.time()
+        if now - float(self._manual_last_refresh_at.get(account_id) or 0) < 300.0:
+            return data
         if not self._manual_refresh_lock.acquire(blocking=False):
             data["refreshing"] = True
             return data
         self._manual_refreshing = True
+        self._manual_last_refresh_at[account_id] = now
         data["refreshing"] = True
         threading.Thread(
             target=self._refresh_manual_tasks_worker,

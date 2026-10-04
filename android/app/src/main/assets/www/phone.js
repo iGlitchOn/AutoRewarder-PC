@@ -96,9 +96,23 @@ function bases() {
     u = String(u).replace(/\/$/, "");
     if (out.indexOf(u) < 0) out.push(u);
   };
-  add(state.lan);
   add(state.base);
+  add(state.lan);
   return out;
+}
+
+function isLanUrl(url) {
+  try {
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== "http:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" ||
+      /^10\./.test(host) || /^192\.168\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+      /^169\.254\./.test(host) || host.endsWith(".local");
+  } catch (e) {
+    return false;
+  }
 }
 
 function httpRaw(method, url, body, token) {
@@ -111,12 +125,19 @@ function httpRaw(method, url, body, token) {
 async function fetchRaw(method, url, body, token) {
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
-  const res = await fetch(url, {
-    method: method,
-    headers: headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return await res.text();
+  const controller = new AbortController();
+  const timeout = setTimeout(function () { controller.abort(); }, isLanUrl(url) ? 1500 : 12000);
+  try {
+    const res = await fetch(url, {
+      method: method,
+      headers: headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    return await res.text();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function isAuthError(e) {

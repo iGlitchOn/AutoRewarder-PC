@@ -3,6 +3,7 @@ cleaner/
 __pycache__/
 dist/
 build/
+release-assets/
 
 # Linter / type-checker caches
 .mypy_cache/
