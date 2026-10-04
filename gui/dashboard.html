@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Statistics</title>
+  <title data-i18n="title_statistics">Statistics</title>
 
   <link rel="stylesheet" href="normalize.css">
   <link rel="stylesheet" href="styles.css">
@@ -19,7 +19,7 @@
           <line x1="12" y1="20" x2="12" y2="4"></line>
           <line x1="6" y1="20" x2="6" y2="14"></line>
         </svg>
-        Statistics
+        <span data-i18n="title_statistics">Statistics</span>
       </h2>
       <span id="account_pill" class="account-pill" hidden></span>
     </header>
@@ -28,7 +28,7 @@
     <section class="dash-hero">
       <div class="hero-card hero-primary">
         <span class="hero-value" id="total_points">—</span>
-        <span class="hero-label" id="total_label">Total points</span>
+        <span class="hero-label" id="total_label" data-i18n="total_points">Total points</span>
         <span class="hero-sub" id="total_sub"></span>
         <button id="refresh_btn" class="refresh-btn" type="button" title="Open a headless browser to read your current balance">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -36,12 +36,12 @@
             <polyline points="1 20 1 14 7 14"></polyline>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
           </svg>
-          <span class="refresh-label">Refresh balance</span>
+          <span class="refresh-label" data-i18n="refresh_balance">Refresh balance</span>
         </button>
       </div>
       <div class="hero-card">
         <span class="hero-value" id="session_points">—</span>
-        <span class="hero-label">Earned today</span>
+        <span class="hero-label" data-i18n="earned_today">Earned today</span>
         <span class="hero-sub" id="session_sub"></span>
       </div>
     </section>
@@ -50,54 +50,54 @@
     <section id="diag_box" class="diag-box" hidden>
       <div class="diag-title">Balance not found — diagnostic</div>
       <div class="diag-line"><b>Landed page:</b> <span id="diag_url"></span></div>
-      <div class="diag-line"><b>Title:</b> <span id="diag_title"></span></div>
-      <div class="diag-line"><b>Selector matches:</b></div>
+      <div class="diag-line"><b data-i18n="title">Title:</b> <span id="diag_title"></span></div>
+      <div class="diag-line"><b data-i18n="selector_matches">Selector matches:</b></div>
       <ul id="diag_candidates" class="diag-list"></ul>
     </section>
 
     <!-- Lifetime activity counters -->
     <section class="dash-section">
-      <div class="dash-section-title">Lifetime activity</div>
+      <div class="dash-section-title" data-i18n="lifetime_activity">Lifetime activity</div>
       <div class="metric-grid">
         <div class="metric">
           <span class="metric-value" id="m_pc">0</span>
-          <span class="metric-label">PC searches</span>
+          <span class="metric-label" data-i18n="pc_searches">PC searches</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_mobile">0</span>
-          <span class="metric-label">Mobile searches</span>
+          <span class="metric-label" data-i18n="mobile_searches">Mobile searches</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_cards">0</span>
-          <span class="metric-label">Daily cards</span>
+          <span class="metric-label" data-i18n="daily_cards">Daily cards</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_earn">0</span>
-          <span class="metric-label">Earn cards</span>
+          <span class="metric-label" data-i18n="earn_cards">Earn cards</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_quests">0</span>
-          <span class="metric-label">Quest tasks</span>
+          <span class="metric-label" data-i18n="quest_tasks">Quest tasks</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_visual">0</span>
-          <span class="metric-label">Visual searches</span>
+          <span class="metric-label" data-i18n="visual_searches">Visual searches</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_checkins">0</span>
-          <span class="metric-label">Check-ins</span>
+          <span class="metric-label" data-i18n="checkin">Check-ins</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_news">0</span>
-          <span class="metric-label">News reads</span>
+          <span class="metric-label" data-i18n="news_reads">News reads</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_edge">0</span>
-          <span class="metric-label">Edge minutes</span>
+          <span class="metric-label" data-i18n="edge_minutes">Edge minutes</span>
         </div>
         <div class="metric">
           <span class="metric-value" id="m_runs">0</span>
-          <span class="metric-label">Runs</span>
+          <span class="metric-label" data-i18n="runs">Runs</span>
         </div>
       </div>
     </section>
@@ -105,29 +105,29 @@
     <!-- Recent activity bar chart (per day, stacked by type) -->
     <section class="dash-section">
       <div class="dash-section-head">
-        <div class="dash-section-title">Recent activity (estimated points / day)</div>
+        <div class="dash-section-title" data-i18n="recent_activity">Recent activity (estimated points / day)</div>
         <div class="chart-legend">
           <span class="legend-item"><span class="legend-dot legend-pc"></span>PC</span>
           <span class="legend-item"><span class="legend-dot legend-mobile"></span>Mobile</span>
-          <span class="legend-item"><span class="legend-dot legend-daily"></span>Daily</span>
-          <span class="legend-item"><span class="legend-dot legend-earn"></span>Earn</span>
-          <span class="legend-item"><span class="legend-dot legend-quests"></span>Quests</span>
+          <span class="legend-item"><span class="legend-dot legend-daily"></span><span data-i18n="daily">Daily</span></span>
+          <span class="legend-item"><span class="legend-dot legend-earn"></span><span data-i18n="earn">Earn</span></span>
+          <span class="legend-item"><span class="legend-dot legend-quests"></span><span data-i18n="quests">Quests</span></span>
         </div>
       </div>
       <div id="runs_chart" class="runs-chart"></div>
-      <div id="runs_empty" class="dash-empty" hidden>No activity recorded yet. Start a run from the main window.</div>
+      <div id="runs_empty" class="dash-empty" data-i18n="no_activity_yet" hidden>No activity recorded yet. Start a run from the main window.</div>
     </section>
 
     <!-- Multi-account recap -->
     <section class="dash-section">
-      <div class="dash-section-title">All accounts</div>
+      <div class="dash-section-title" data-i18n="all_accounts">All accounts</div>
       <table class="dash-table">
         <thead>
           <tr>
-            <th>Account</th>
-            <th class="num">Total points</th>
-            <th class="num">Runs</th>
-            <th class="num">Searches</th>
+            <th data-i18n="account">Account</th>
+            <th class="num" data-i18n="total_points">Total points</th>
+            <th class="num" data-i18n="runs">Runs</th>
+            <th class="num" data-i18n="searches">Searches</th>
           </tr>
         </thead>
         <tbody id="accounts_body">
@@ -141,6 +141,7 @@
   <script src="i18n.js"></script>
   <script>
     const PALETTE = ['#5b8eff', '#e879a0', '#f59e0b', '#34d399', '#a78bfa', '#fbbf24', '#fb7185', '#22d3ee'];
+    let _last_dashboard_stats = null;
 
     function color_for(id) {
       let h = 0;
@@ -188,6 +189,7 @@
 
     function render_current_stats(stats) {
       if (!stats || !stats.derived) return;
+      _last_dashboard_stats = stats;
       const d = stats.derived;
       const life = stats.lifetime || {};
 
@@ -199,12 +201,12 @@
       const totalLabel = document.getElementById('total_label');
       const totalSub = document.getElementById('total_sub');
       totalEl.textContent = d.is_estimate ? '—' : fmt(d.total_points);
-      totalLabel.textContent = d.is_estimate ? 'Balance not verified' : 'Total points';
+      totalLabel.textContent = d.is_estimate ? t('balance_not_verified') : t('total_points');
       if (d.is_estimate) {
-        totalSub.textContent = 'Microsoft Rewards balance not verified yet.';
+        totalSub.textContent = t('balance_not_verified') + '.';
       } else {
         const when = fmt_when(stats.balance && stats.balance.updated_at);
-        totalSub.textContent = when ? ('Real balance · updated ' + when) : 'Real balance';
+        totalSub.textContent = when ? tf('balance_updated', { when: when }) : t('real_balance');
       }
 
       // Hero — session.
@@ -217,13 +219,13 @@
       sessEl.textContent = todayEst ? '—' : sessPrefix + fmt(todayPts);
       const day = (stats.daily && d.last_run_date && stats.daily[d.last_run_date]) || {};
       const parts = [];
-      if (day.pc) parts.push(day.pc + ' PC');
-      if (day.mobile) parts.push(day.mobile + ' mobile');
-      if (day.cards) parts.push(day.cards + ' cards');
-      if (day.earn) parts.push(day.earn + ' earn');
-      if (day.quests) parts.push(day.quests + ' quests');
-      if (day.runs) parts.push(day.runs + (day.runs === 1 ? ' run' : ' runs'));
-      sessSub.textContent = parts.length ? ('Today · ' + parts.join(' · ')) : 'No activity recorded today';
+      if (day.pc) parts.push(day.pc + ' ' + t('pc_searches'));
+      if (day.mobile) parts.push(day.mobile + ' ' + t('mobile_searches'));
+      if (day.cards) parts.push(day.cards + ' ' + t('daily_cards'));
+      if (day.earn) parts.push(day.earn + ' ' + t('earn_cards'));
+      if (day.quests) parts.push(day.quests + ' ' + t('quest_tasks'));
+      if (day.runs) parts.push(day.runs + ' ' + t('runs'));
+      sessSub.textContent = parts.length ? (t('today') + ' · ' + parts.join(' · ')) : t('no_activity_today');
 
       // Lifetime metrics.
       document.getElementById('m_pc').textContent = fmt(life.pc_searches || 0);
@@ -335,10 +337,10 @@
 
         const stack = document.createElement('div');
         stack.className = 'bar-stack';
-        stack.title = `${day_label(d)}\nPC: ${fmt(e.pc)} pts` +
-          `\nMobile: ${fmt(e.mobile)} pts\nDaily: ${fmt(e.daily)} pts` +
-          `\nEarn: ${fmt(e.earn)} pts\nQuests: ${fmt(e.quests)} pts` +
-          `\nTotal: ${fmt(total)} pts`;
+        stack.title = `${day_label(d)}\nPC: ${fmt(e.pc)} ${t('total_points')}` +
+          `\n${t('mobile_searches')}: ${fmt(e.mobile)} ${t('total_points')}\n${t('daily')}: ${fmt(e.daily)} ${t('total_points')}` +
+          `\n${t('earn')}: ${fmt(e.earn)} ${t('total_points')}\n${t('quests')}: ${fmt(e.quests)} ${t('total_points')}` +
+          `\n${t('total_points')}: ${fmt(total)}`;
 
         for (const seg of SEGMENTS) {
           const div = document.createElement('div');
@@ -367,7 +369,7 @@
         const td = document.createElement('td');
         td.colSpan = 4;
         td.className = 'dash-empty-row';
-        td.textContent = 'No accounts yet.';
+        td.textContent = t('no_accounts_period');
         tr.appendChild(td);
         body.appendChild(tr);
         return;
@@ -416,16 +418,16 @@
       btn.disabled = busy;
       btn.classList.toggle('busy', busy);
       const label = btn.querySelector('.refresh-label');
-      if (label) label.textContent = busy ? 'Refreshing…' : 'Refresh balance';
+      if (label) label.textContent = busy ? t('refreshing') : t('refresh_balance');
     }
 
     const REFRESH_ERRORS = {
-      no_account: 'No account selected.',
-      setup_needed: 'Complete First Setup for this account first.',
-      busy: 'Browser busy (a run or startup is using it) — try again in a moment.',
-      not_found: "Couldn't read the balance from the rewards page.",
-      driver: 'Could not open the browser to read the balance.',
-      account_changed: 'Account changed during refresh — try again.'
+      no_account: t('refresh_error_no_account'),
+      setup_needed: t('refresh_error_setup'),
+      busy: t('refresh_error_busy'),
+      not_found: t('refresh_error_not_found'),
+      driver: t('refresh_error_driver'),
+      account_changed: t('refresh_error_changed')
     };
 
     function hide_diag() {
@@ -467,7 +469,7 @@
         }
         if (isManual) {
           const sub = document.getElementById('total_sub');
-          if (sub) sub.textContent = (res && REFRESH_ERRORS[res.error]) || 'Refresh failed.';
+          if (sub) sub.textContent = (res && REFRESH_ERRORS[res.error]) || t('refresh_failed');
           if (res && res.error === 'not_found') show_diag(res); else hide_diag();
         }
       }).catch(function (err) {

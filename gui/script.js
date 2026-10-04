@@ -327,7 +327,7 @@ function show_update_notice(result, manual) {
   if (custom) {
     _update_panel('Nueva actualización propia ' + custom.tag + '. ¿Quieres descargarla?', custom.download_url, custom.asset_name);
   } else if (manual) {
-    _update_panel('No hay una actualización propia disponible.', '');
+    _update_panel(t('update_no_custom'), '');
     setTimeout(cancel_custom_update, 4000);
     if (original) update_log('También hay una actualización del repositorio original para notificar al desarrollador.');
   }
@@ -336,13 +336,13 @@ function show_update_notice(result, manual) {
 
 function check_updates_manual() {
   const button = document.getElementById('updates_btn');
-  if (button) { button.disabled = true; button.textContent = 'Checking…'; }
+  if (button) { button.disabled = true; button.textContent = t('checking'); }
   const done = function () {
-    if (button) { button.disabled = false; button.textContent = 'Check updates'; }
+  if (button) { button.disabled = false; button.textContent = t('check_updates'); }
   };
   try {
     if (!window.pywebview || !pywebview.api || typeof pywebview.api.check_updates !== 'function') {
-      update_log('No se pudo consultar GitHub desde esta versión.');
+      update_log(t('update_github_failed'));
       done();
       return;
     }
@@ -350,11 +350,11 @@ function check_updates_manual() {
       show_update_notice(result, true);
       done();
     }).catch(function () {
-      update_log('No se pudo comprobar GitHub.');
+      update_log(t('update_github_failed'));
       done();
     });
   } catch (e) {
-    update_log('No se pudo comprobar GitHub.');
+    update_log(t('update_github_failed'));
     done();
   }
 }
@@ -419,15 +419,15 @@ function start_bot() {
   const pcValid = !isNaN(pc) && pc >= 0 && pc <= 130;
   const mobileValid = !isNaN(mobile) && mobile >= 0 && mobile <= 99;
   if (!pcValid) {
-    show_toast('PC must be between 0 and 130.', 'warning');
+    show_toast(t('pc_range'), 'warning');
     return;
   }
   if (!mobileValid) {
-    show_toast('Mobile must be between 0 and 99.', 'warning');
+    show_toast(t('mobile_range'), 'warning');
     return;
   }
   if (pc + mobile === 0) {
-    show_toast('Set at least one of PC or Mobile above 0.', 'warning');
+    show_toast(t('choose_queries'), 'warning');
     return;
   }
 
@@ -514,11 +514,11 @@ function stop_bot() {
   if (stopBtn) {
     stopBtn.disabled = true;
     const stopLabel = stopBtn.querySelector('.stop-label');
-    if (stopLabel) stopLabel.textContent = 'Stopping…';
+  if (stopLabel) stopLabel.textContent = t('run.stopping_short');
   }
   update_status_indicator('executing');
   const text = document.getElementById('status_text');
-  if (text) text.textContent = 'Stopping…';
+  if (text) text.textContent = t('run.stopping_short');
   // Mark this as a user stop so a login-triggered run does not close the GUI.
   pywebview.api.stop(true).catch(err => console.error('stop failed:', err));
 }
@@ -779,7 +779,7 @@ function render_account_menu() {
         toggle_account_menu(false);
         if (acc.id !== currentAccountId) {
           pywebview.api.switch_account(acc.id).then(ok => {
-            if (!ok) show_toast('Could not switch account. Is the bot running?', 'warning');
+  if (!ok) show_toast(t('account_switch_error'), 'warning');
           });
         }
       });
@@ -862,7 +862,7 @@ async function delete_current_account() {
     show_toast('No se pudo borrar la cuenta. Detén la ejecución e inténtalo de nuevo.', 'warning');
     return;
   }
-  show_toast(`"${current.label}" fue borrada.`, 'success');
+  show_toast(tf('account_deleted', { name: current.label }), 'success');
   refresh_account_ui();
 }
 
@@ -873,27 +873,27 @@ async function delete_current_account() {
 async function prompt_and_create_account() {
   const defaultLabel = `Account ${accountsCache.length + 1}`;
   const label = await prompt_modal(
-    'Add a new account',
-    'Give this account a name — you can rename it later.',
+    t('add_account_title'),
+    t('add_account_hint'),
     defaultLabel,
-    { placeholder: defaultLabel, confirmLabel: 'Continue' }
+    { placeholder: defaultLabel, confirmLabel: t('continue') }
   );
   if (label === null) return;
   const trimmed = String(label).trim() || defaultLabel;
 
-  show_toast(`Opening browser for "${trimmed}". Log in, then close the window.`, 'info', { duration: 6000 });
+  show_toast(tf('account_open_login', { name: trimmed }), 'info', { duration: 6000 });
 
   pywebview.api.create_account(trimmed).then(result => {
     if (!result || !result.ok) {
       if (result && result.error === 'bot_running') {
-        show_toast('Cannot add an account while the bot is running.', 'warning');
+      show_toast(t('account_bot_running'), 'warning');
       } else if (result && result.error === 'setup_failed') {
-        show_toast('Setup cancelled — account not created.', 'warning');
+        show_toast(t('account_setup_failed'), 'warning');
       } else {
-        show_toast('Could not create account.', 'error');
+      show_toast(t('account_create_failed'), 'error');
       }
     } else {
-      show_toast(`Account "${result.label}" is ready.`, 'success');
+      show_toast(tf('account_created', { name: result.label }), 'success');
     }
     refresh_account_ui();
   });
@@ -1004,7 +1004,7 @@ function open_settings_modal() {
     apply_llm_field_state();
   }).catch(err => {
     console.error('Failed to load settings:', err);
-    show_toast('Could not load settings.', 'error');
+  show_toast(t('settings_load_error'), 'error');
   });
 
   backdrop.hidden = false;
@@ -1106,12 +1106,12 @@ function build_schedule_card(item) {
 
   const toggleWrap = document.createElement('label');
   toggleWrap.className = 'toggle-compact';
-  toggleWrap.title = 'Enable schedule';
+  toggleWrap.title = t('schedule_enable');
   const toggleInput = document.createElement('input');
   toggleInput.type = 'checkbox';
   toggleInput.className = 'schedule-enabled';
   toggleInput.checked = Boolean(sched.enabled);
-  toggleInput.setAttribute('aria-label', 'Enable schedule for ' + acc.label);
+  toggleInput.setAttribute('aria-label', tf('schedule_enable_for', { name: acc.label }));
   const togglePill = document.createElement('span');
   togglePill.className = 'toggle-pill';
   toggleWrap.appendChild(toggleInput);
@@ -1129,10 +1129,10 @@ function build_schedule_card(item) {
   const DASHBOARD_VARIANTS = ['auto', 'legacy', 'new'];
   const dashDefault = DASHBOARD_VARIANTS.includes(item.dashboard_variant)
     ? item.dashboard_variant : 'auto';
-  body.appendChild(make_select_field('Rewards dashboard', 'schedule-dashboard', dashDefault, [
-    { value: 'auto', label: 'Auto (detect)' },
-    { value: 'legacy', label: 'Legacy' },
-    { value: 'new', label: 'New' },
+  body.appendChild(make_select_field(t('schedule_dashboard'), 'schedule-dashboard', dashDefault, [
+    { value: 'auto', label: t('dashboard_auto') },
+    { value: 'legacy', label: t('dashboard_legacy') },
+    { value: 'new', label: t('dashboard_new') },
   ]));
 
   // Advanced scheduling sub-toggle row.
@@ -1146,7 +1146,7 @@ function build_schedule_card(item) {
   advPill.className = 'toggle-pill';
   const advLabel = document.createElement('span');
   advLabel.className = 'sched-adv-label';
-  advLabel.textContent = 'Advanced scheduling (drip-feed across duration)';
+  advLabel.textContent = t('advanced_scheduling');
   const advWrap = document.createElement('span');
   advWrap.className = 'toggle-compact';
   advWrap.appendChild(advInput);
@@ -1160,23 +1160,23 @@ function build_schedule_card(item) {
   rowPcMobile.className = 'form-grid-2';
   const pcDefault = sched.queries_pc != null ? sched.queries_pc : 15;
   const mobileDefault = sched.queries_mobile != null ? sched.queries_mobile : 15;
-  rowPcMobile.appendChild(make_form_field('PC queries', 'number', 'schedule-queries-pc', pcDefault, { min: 0, max: 130 }));
-  rowPcMobile.appendChild(make_form_field('Mobile queries', 'number', 'schedule-queries-mobile', mobileDefault, { min: 0, max: 99 }));
+  rowPcMobile.appendChild(make_form_field(t('pc_searches'), 'number', 'schedule-queries-pc', pcDefault, { min: 0, max: 130 }));
+  rowPcMobile.appendChild(make_form_field(t('mobile_searches'), 'number', 'schedule-queries-mobile', mobileDefault, { min: 0, max: 99 }));
   body.appendChild(rowPcMobile);
 
   // Daily fire time row — when the OS-level scheduled task triggers for
   // this account. Only effective when the global Start-with-Windows
   // toggle is on AND this account's schedule is enabled.
   const timeDefault = (sched.run_time && /^\d{2}:\d{2}$/.test(sched.run_time)) ? sched.run_time : '09:00';
-  body.appendChild(make_form_field('Daily run time', 'time', 'schedule-run-time', timeDefault, {}));
+  body.appendChild(make_form_field(t('daily_run_time'), 'time', 'schedule-run-time', timeDefault, {}));
 
   // Duration + qph row (only meaningful when advancedScheduling is on).
   const rowAdv = document.createElement('div');
   rowAdv.className = 'form-grid-2 sched-adv-fields';
   const durDefault = sched.runDuration != null ? sched.runDuration : 3;
   const qphDefault = sched.queriesPerHour != null ? sched.queriesPerHour : 10;
-  rowAdv.appendChild(make_form_field('Run duration (h)', 'number', 'schedule-run-duration', durDefault, { min: 1, max: 24 }));
-  rowAdv.appendChild(make_form_field('Queries / hour', 'number', 'schedule-queries-per-hour', qphDefault, { min: 1, max: 99 }));
+  rowAdv.appendChild(make_form_field(t('run_duration'), 'number', 'schedule-run-duration', durDefault, { min: 1, max: 24 }));
+  rowAdv.appendChild(make_form_field(t('queries_hour'), 'number', 'schedule-queries-per-hour', qphDefault, { min: 1, max: 99 }));
   if (!advInput.checked) rowAdv.classList.add('dim');
   body.appendChild(rowAdv);
 
@@ -1302,28 +1302,28 @@ async function save_settings() {
 
     if (enabled) {
       if (isNaN(pc) || pc < 0 || pc > 130) {
-        show_toast('PC queries must be between 0 and 130.', 'warning');
+        show_toast(t('schedule_pc_range'), 'warning');
         return;
       }
       if (isNaN(mobile) || mobile < 0 || mobile > 99) {
-        show_toast('Mobile queries must be between 0 and 99.', 'warning');
+        show_toast(t('schedule_mobile_range'), 'warning');
         return;
       }
       if ((pc || 0) + (mobile || 0) === 0) {
-        show_toast('Set at least one of PC or Mobile queries above 0.', 'warning');
+        show_toast(t('schedule_choose_queries'), 'warning');
         return;
       }
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(runTime || '')) {
-        show_toast('Daily run time must be a valid HH:MM value.', 'warning');
+        show_toast(t('schedule_time_invalid'), 'warning');
         return;
       }
       if (advancedScheduling) {
         if (isNaN(runDuration) || runDuration < 1 || runDuration > 24) {
-          show_toast('Run duration must be between 1 and 24 hours.', 'warning');
+          show_toast(t('schedule_duration_range'), 'warning');
           return;
         }
         if (isNaN(queriesPerHour) || queriesPerHour < 1 || queriesPerHour > 99) {
-          show_toast('Queries per hour must be between 1 and 99.', 'warning');
+          show_toast(t('schedule_qph_range'), 'warning');
           return;
         }
       }
@@ -1411,21 +1411,21 @@ async function save_settings() {
     const failures = scheduleResults.filter(ok => !ok).length;
 
     if (failures > 0) {
-      show_toast(`${failures} schedule${failures > 1 ? 's' : ''} failed to save.`, 'error');
+      show_toast(tf('schedules_failed', { count: failures }), 'error');
       return;
     }
     if (
       (!startupOk && startupInfo && startupInfo.supported)
       || (!openOnLoginOk && openOnLoginInfo && openOnLoginInfo.supported)
     ) {
-      show_toast('Schedules saved, but a startup setting failed.', 'warning');
+      show_toast(t('settings_saved_startup_failed'), 'warning');
     } else {
-      show_toast('Settings saved.', 'success');
+      show_toast(t('settings_saved'), 'success');
     }
     close_settings_modal();
   } catch (err) {
     console.error('save_settings failed:', err);
-    show_toast('Save failed.', 'error');
+    show_toast(t('save_failed'), 'error');
   }
 }
 
@@ -1804,10 +1804,10 @@ function copy_activity_log() {
   const logDiv = document.getElementById('log_area');
   const text = logDiv ? (logDiv.innerText || '').trim() : '';
   if (!text) {
-    show_toast('Activity log is empty.', 'info');
+  show_toast(t('activity_log_empty'), 'info');
     return;
   }
-  const done = () => show_toast('Activity log copied.', 'success');
+  const done = () => show_toast(t('activity_log_copied'), 'success');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(fallbackCopy);
   } else {
@@ -1824,7 +1824,7 @@ function copy_activity_log() {
       document.execCommand('copy');
       done();
     } catch (err) {
-      show_toast('Could not copy the activity log.', 'error');
+  show_toast(t('activity_copy_failed'), 'error');
     }
     ta.remove();
   }
@@ -1842,7 +1842,7 @@ function setup_activity_context_menu() {
     menu.hidden = true;
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = 'Copy all';
+  btn.textContent = t('copy_all');
     btn.addEventListener('click', () => {
       menu.hidden = true;
       copy_activity_log();
@@ -1886,8 +1886,8 @@ function render_phone_device(info) {
   const membership = (info && info.membership) || 'Microsoft Rewards';
   const region = (info && info.region) || '';
   const ready = info && info.account && info.account.first_setup_done;
-  const readyLabel = ready ? 'Ready to run' : 'Setup pending';
-  const suffix = region ? ` · ${membership} · ${region} · by phone` : ` · ${membership} · by phone`;
+  const readyLabel = ready ? t('phone.ready') : t('phone.setup_pending');
+  const suffix = region ? ` · ${membership} · ${region} · ${t('phone.by_phone')}` : ` · ${membership} · ${t('phone.by_phone')}`;
 
   if (!phones.length) {
     const btn = document.createElement('button');
@@ -1895,8 +1895,8 @@ function render_phone_device(info) {
     btn.className = 'phone-row is-empty';
     btn.innerHTML =
       '<span class="avatar" aria-hidden="true">+</span>' +
-      '<span class="account-info"><span class="account-name">Link a phone</span>' +
-      '<span class="account-meta">Same Microsoft account · companion APK</span></span>';
+      '<span class="account-info"><span class="account-name">' + t('link_phone') + '</span>' +
+      '<span class="account-meta">' + t('account.same_microsoft') + '</span></span>';
     btn.addEventListener('click', begin_phone_pairing);
     wrap.appendChild(btn);
   } else {
@@ -1910,7 +1910,7 @@ function render_phone_device(info) {
       infoEl.className = 'account-info';
       const name = document.createElement('span');
       name.className = 'account-name';
-      name.textContent = phone.name || 'Phone';
+      name.textContent = phone.name || t('phone');
       const meta = document.createElement('span');
       meta.className = 'account-meta';
       meta.textContent = readyLabel + suffix;
@@ -1918,18 +1918,18 @@ function render_phone_device(info) {
       infoEl.appendChild(meta);
       const dot = document.createElement('span');
       dot.className = 'phone-dot' + (phone.online ? ' on' : '');
-      dot.title = phone.online ? 'Online' : 'Offline';
+      dot.title = phone.online ? t('phone.online') : t('phone.offline');
       const actions = document.createElement('div');
       actions.className = 'phone-row-actions';
       const ask = document.createElement('button');
       ask.type = 'button';
       ask.className = 'phone-mini';
       ask.textContent = t('checkin');
-      ask.title = 'Ask this phone to open Bing check-in';
+      ask.title = t('checkin');
       ask.addEventListener('click', function () {
         pywebview.api.send_phone_job('checkin').then(function (r) {
-          if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
-          else show_toast('Check-in sent to the phone.', 'success');
+          if (!r || !r.ok) show_toast((r && r.error) || t('phone_offline_toast'), 'warning');
+          else show_toast(t('checkin_sent'), 'success');
         });
       });
       const news = document.createElement('button');
@@ -1938,8 +1938,8 @@ function render_phone_device(info) {
       news.textContent = t('news');
       news.addEventListener('click', function () {
         pywebview.api.send_phone_job('news').then(function (r) {
-          if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
-          else show_toast('Read-to-earn sent to the phone.', 'success');
+          if (!r || !r.ok) show_toast((r && r.error) || t('phone_offline_toast'), 'warning');
+          else show_toast(t('news_sent'), 'success');
         });
       });
       const unlink = document.createElement('button');
@@ -1950,12 +1950,12 @@ function render_phone_device(info) {
         unlink.disabled = true;
         pywebview.api.unlink_phone(phone.id).then(function (info) {
           if (!info || info.phone_unlinked !== true) {
-            show_toast('Phone was already unlinked or could not be removed.', 'warning');
+            show_toast(t('phone_already_unlinked'), 'warning');
             unlink.disabled = false;
             refresh_account_ui();
             return;
           }
-          show_toast('Phone unlinked. Microsoft account kept.', 'info');
+          show_toast(t('phone_unlinked'), 'info');
           refresh_phone_ui();
           // Re-read accounts and Start/Tasks eligibility after the phone-only
           // mutation.  The phone must never determine whether a Microsoft
@@ -1963,7 +1963,7 @@ function render_phone_device(info) {
           refresh_account_ui();
         }).catch(function (err) {
           console.error('unlink_phone failed:', err);
-          show_toast('Could not unlink the phone.', 'error');
+          show_toast(t('phone_unlink_failed'), 'error');
           unlink.disabled = false;
           refresh_account_ui();
         });
@@ -1980,7 +1980,7 @@ function render_phone_device(info) {
     const add = document.createElement('button');
     add.type = 'button';
     add.className = 'phone-mini';
-    add.textContent = 'Link another phone';
+    add.textContent = t('link_another_phone');
     add.addEventListener('click', begin_phone_pairing);
     wrap.appendChild(add);
   }
@@ -2009,7 +2009,7 @@ function render_phone_device(info) {
           : t('pair.waiting');
       }
     } else if (phones.some(function (p) { return p.online; })) {
-      if (metaEl) metaEl.textContent = 'Celular en línea. Si el teléfono ya entró, puedes cerrar.';
+      if (metaEl) metaEl.textContent = t('phone_online_close');
     }
   }
 }
@@ -2021,7 +2021,7 @@ function begin_phone_pairing() {
     if (modal) modal.hidden = false;
     render_phone_device(info);
   }).catch(function (err) {
-    show_toast('Could not start pairing.', 'error');
+    show_toast(t('pair_failed'), 'error');
     console.error(err);
   });
 }

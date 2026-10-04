@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Execution History</title>
+  <title data-i18n="title_history">Execution History</title>
 
   <link rel="stylesheet" href="normalize.css">
   <link rel="stylesheet" href="styles.css">
@@ -16,13 +16,13 @@
         <circle cx="12" cy="12" r="10"></circle>
         <polyline points="12 6 12 12 16 14"></polyline>
       </svg>
-      Execution history
+      <span data-i18n="execution_history">Execution history</span>
     </h2>
     <div class="history-toolbar">
-      <div class="history-filters" role="tablist" aria-label="Filter history">
-        <button type="button" class="hist-filter active" data-filter="all">All</button>
-        <button type="button" class="hist-filter" data-filter="success">Success</button>
-        <button type="button" class="hist-filter" data-filter="error">Errors</button>
+      <div class="history-filters" role="tablist" aria-label="Filter history" data-i18n="filter_history">
+        <button type="button" class="hist-filter active" data-filter="all" data-i18n="all">All</button>
+        <button type="button" class="hist-filter" data-filter="success" data-i18n="success">Success</button>
+        <button type="button" class="hist-filter" data-filter="error" data-i18n="errors">Errors</button>
       </div>
       <span id="account_pill" class="account-pill" hidden></span>
     </div>
@@ -31,15 +31,15 @@
   <table class="history-table">
     <thead>
       <tr>
-        <th class="col-date">Date</th>
-        <th class="col-time">Time</th>
-        <th class="col-query">Activity</th>
-        <th class="col-status">Status</th>
+        <th class="col-date" data-i18n="date">Date</th>
+        <th class="col-time" data-i18n="time">Time</th>
+        <th class="col-query" data-i18n="activity">Activity</th>
+        <th class="col-status" data-i18n="status">Status</th>
       </tr>
     </thead>
     <tbody id="table_body">
       <tr>
-        <td colspan="4" class="empty-row">Loading…</td>
+        <td colspan="4" class="empty-row" data-i18n="loading">Loading…</td>
       </tr>
     </tbody>
   </table>
@@ -87,11 +87,27 @@
 
       function activityLabel(item) {
         const raw = String(item.query || '').trim();
-        if (!raw) return 'Activity';
-        if (/^(search|daily set|daily tasks|ready to claim|more activities|punchcards|visual search|check-in|news|edge browsing|bing app|run)\b/i.test(raw)) {
-          return raw;
-        }
-        return 'Search: ' + raw;
+        if (!raw) return t('activity');
+        const known = [
+          [/^daily set/i, 'daily_tasks'], [/^daily tasks/i, 'daily_tasks'], [/^ready to claim/i, 'tasks'],
+          [/^more activities/i, 'activity'], [/^punchcards/i, 'activity'], [/^visual search/i, 'visual_searches'],
+          [/^check-in/i, 'checkin'], [/^news/i, 'news'], [/^edge browsing/i, 'edge_minutes'], [/^bing app/i, 'phone'],
+          [/^run/i, 'run']
+        ];
+        for (const pair of known) if (pair[0].test(raw)) return t(pair[1]);
+        return t('searches') + ': ' + raw;
+      }
+
+      function statusLabel(status) {
+        const raw = String(status || '').trim();
+        if (!raw) return t('unknown');
+        if (/^ok\s*[—-]/i.test(raw)) return t('status.ok') + raw.replace(/^ok\s*[—-]/i, ' —');
+        if (/^skipped\s*[—-]/i.test(raw)) return t('status.skipped') + raw.replace(/^skipped\s*[—-]/i, ' —');
+        if (/^\[error\]/i.test(raw)) return t('status.error_prefix') + raw.slice(7);
+        if (/^\[warning\]/i.test(raw)) return t('status.warning_prefix') + raw.slice(9);
+        const exact = { 'done': 'status.done', 'pending': 'status.pending', 'partial': 'status.partial', 'unknown': 'status.unknown' };
+        if (exact[raw.toLowerCase()]) return t(exact[raw.toLowerCase()]);
+        return tr(raw);
       }
 
       function render_history() {
@@ -103,7 +119,7 @@
           const td = document.createElement('td');
           td.colSpan = 4;
           td.className = 'empty-row';
-          td.textContent = 'No runs yet. Start one from the main window.';
+          td.textContent = t('no_runs_yet');
           tr.appendChild(td);
           tbody.appendChild(tr);
           return;
@@ -121,9 +137,7 @@
           const td = document.createElement('td');
           td.colSpan = 4;
           td.className = 'empty-row';
-          td.textContent = historyFilter === 'error'
-            ? 'No errors in this history.'
-            : 'No successful entries in this history.';
+          td.textContent = historyFilter === 'error' ? t('no_errors_history') : t('no_success_history');
           tr.appendChild(td);
           tbody.appendChild(tr);
           return;
@@ -146,7 +160,7 @@
 
           const statusTd = document.createElement('td');
           statusTd.className = statusClass;
-          statusTd.textContent = item.status;
+          statusTd.textContent = statusLabel(item.status);
 
           tr.appendChild(dateTd);
           tr.appendChild(timeTd);
