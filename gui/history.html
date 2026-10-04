@@ -101,6 +101,8 @@
       function statusLabel(status) {
         const raw = String(status || '').trim();
         if (!raw) return t('unknown');
+        const runtime = translate_runtime_text(raw);
+        if (runtime !== raw) return runtime;
         if (/^ok\s*[—-]/i.test(raw)) return t('status.ok') + raw.replace(/^ok\s*[—-]/i, ' —');
         if (/^skipped\s*[—-]/i.test(raw)) return t('status.skipped') + raw.replace(/^skipped\s*[—-]/i, ' —');
         if (/^\[error\]/i.test(raw)) return t('status.error_prefix') + raw.slice(7);

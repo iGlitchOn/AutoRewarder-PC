@@ -433,6 +433,22 @@ Object.assign(UI_COPY, {
   "phone_unlinked": { en: "Phone unlinked. Microsoft account kept.", es: "Celular desvinculado. La cuenta Microsoft se conservó.", pt: "Celular desvinculado. A conta Microsoft foi mantida.", zh: "手机已取消关联，Microsoft 账户保留。" },
 });
 
+Object.assign(UI_COPY, {
+  "runtime.ok_prefix": { en: "OK", es: "Correcto", pt: "OK", zh: "成功" },
+  "runtime.skipped_prefix": { en: "Skipped", es: "Omitido", pt: "Ignorado", zh: "已跳过" },
+  "runtime.error_prefix": { en: "Error", es: "Error", pt: "Erro", zh: "错误" },
+  "runtime.warning_prefix": { en: "Warning", es: "Advertencia", pt: "Aviso", zh: "警告" },
+  "runtime.opening_edge": { en: "Opening Edge", es: "Abriendo Edge", pt: "Abrindo o Edge", zh: "正在打开 Edge" },
+  "runtime.edge_ready": { en: "Edge is ready.", es: "Edge está listo.", pt: "O Edge está pronto.", zh: "Edge 已准备就绪。" },
+  "runtime.already_complete": { en: "already complete today, skipping.", es: "ya está completo hoy; se omitirá.", pt: "já está concluído hoje; será ignorado.", zh: "今天已完成，跳过。" },
+  "runtime.not_listed": { en: "not listed on today's dashboard, skipping.", es: "no aparece en el panel de hoy; se omitirá.", pt: "não aparece no painel de hoje; será ignorado.", zh: "未列在今天的面板中，跳过。" },
+  "runtime.not_complete_running": { en: "not complete, running.", es: "no está completo; se ejecutará.", pt: "não está concluído; será executado.", zh: "尚未完成，正在运行。" },
+  "runtime.credited": { en: "credited", es: "acreditado", pt: "creditado", zh: "已获得积分" },
+  "runtime.already_done": { en: "already done", es: "ya completado", pt: "já concluído", zh: "已完成" },
+  "runtime.no_phone": { en: "No linked phone available for check-in/news; continuing with the simulated mobile client.", es: "No hay celular vinculado para el registro/noticias; se continuará con el cliente móvil simulado.", pt: "Não há celular vinculado para check-in/notícias; continuando com o cliente móvel simulado.", zh: "没有已关联的手机可用于签到/新闻，将继续使用模拟移动客户端。" },
+  "runtime.nothing_to_do": { en: "Nothing to do (PC and Mobile counts are both 0).", es: "No hay nada que hacer (las cantidades de PC y móvil son 0).", pt: "Nada para fazer (as quantidades de PC e celular são 0).", zh: "没有要执行的任务（电脑和手机搜索次数均为 0）。" },
+});
+
 const _copyIndex = Object.create(null);
 Object.keys(UI_COPY).forEach(function (key) {
   Object.keys(UI_COPY[key]).forEach(function (locale) {
@@ -463,6 +479,37 @@ function tr(value) {
   const source = String(value == null ? "" : value);
   const key = _copyIndex[source.trim()];
   return key ? (UI_COPY[key][_uiLang] || UI_COPY[key].en || source) : source;
+}
+
+// Python sends activity/log details as readable English strings. Translate
+// those runtime messages at the final rendering boundary so logs, history and
+// progress cards follow the selected UI language too.
+function translate_runtime_text(value) {
+  let text = String(value == null ? "" : value);
+  const exact = tr(text);
+  if (exact !== text) return exact;
+  const replacements = [
+    [/^OK\s*[—-]/i, t("runtime.ok_prefix") + " —"],
+    [/^Skipped\s*[—-]/i, t("runtime.skipped_prefix") + " —"],
+    [/^\[ERROR\]\s*/i, t("runtime.error_prefix") + ": "],
+    [/^\[WARNING\]\s*/i, t("runtime.warning_prefix") + ": "],
+    [/\bOpening Edge\b/gi, t("runtime.opening_edge")],
+    [/\bEdge is ready\./gi, t("runtime.edge_ready")],
+    [/already complete today, skipping\./gi, t("runtime.already_complete")],
+    [/not listed on today's dashboard, skipping\./gi, t("runtime.not_listed")],
+    [/not complete, running\./gi, t("runtime.not_complete_running")],
+    [/\balready done\b/gi, t("runtime.already_done")],
+    [/\bcredited\b/gi, t("runtime.credited")],
+    [/\bVisual Search\b/gi, t("visual_searches")],
+    [/\bDaily Set\b/gi, t("daily_tasks")],
+    [/\bEdge browsing\b/gi, t("edge_minutes")],
+    [/\bBing app streak\b/gi, t("phone")],
+    [/\bCheck-in\b/gi, t("checkin")],
+    [/\bNews\b/g, t("news")],
+    [/\bMobile app\b/gi, t("label.mobile")],
+  ];
+  replacements.forEach(function (pair) { text = text.replace(pair[0], pair[1]); });
+  return text;
 }
 
 function tf(key, values) {

@@ -38,7 +38,7 @@ function show_toast(message, type, opts) {
     '<div class="toast-msg"></div>' +
     '<button class="toast-close" aria-label="Dismiss">&times;</button>';
 
-  toast.querySelector('.toast-msg').textContent = typeof tr === 'function' ? tr(message) : message;
+  toast.querySelector('.toast-msg').textContent = typeof translate_runtime_text === 'function' ? translate_runtime_text(message) : message;
 
   const dismiss = () => {
     toast.classList.add('hiding');
@@ -66,7 +66,7 @@ function open_modal(opts) {
   const cancelBtn = document.getElementById('modal_cancel');
 
   title.textContent = typeof tr === 'function' ? tr(opts.title || '') : (opts.title || '');
-  message.textContent = typeof tr === 'function' ? tr(opts.message || '') : (opts.message || '');
+  message.textContent = typeof translate_runtime_text === 'function' ? translate_runtime_text(opts.message || '') : (opts.message || '');
 
   const withInput = Boolean(opts.withInput);
   input.hidden = !withInput;
@@ -177,7 +177,7 @@ function _new_log_line(message) {
   line.className = 'log-line' + (severity ? ' ' + severity : '');
 
   // Preserve newlines without HTML: split → text nodes separated by <br>.
-  const parts = String(message).split('\n');
+  const parts = translate_runtime_text(message).split('\n');
   for (let i = 0; i < parts.length; i++) {
     if (i > 0) line.appendChild(document.createElement('br'));
     line.appendChild(document.createTextNode(parts[i]));
@@ -664,7 +664,7 @@ function refresh_rewards_overview() {
         if (left > 0) return `${obj.label} (${left} ${t('left')})`;
         return `${obj.label} ${t('status.done')}`;
       }
-      const s = String(fallback || obj || '');
+      const s = translate_runtime_text(String(fallback || obj || ''));
       const m = s.match(/(\d+)\s*\/\s*(\d+)/);
       if (m) {
         const left = Math.max(0, parseInt(m[2], 10) - parseInt(m[1], 10));
@@ -674,12 +674,12 @@ function refresh_rewards_overview() {
     };
     set('progress_pc', `${t('label.pc')}: ${leftover(progress.pc, (progress.pc || {}).label)}`);
     set('progress_mobile', `${t('label.mobile')}: ${leftover(progress.mobile, (progress.mobile || {}).label)}`);
-    set('progress_daily', `${t('progress.daily')}: ${progress.daily || t('status.unknown')}`);
-    set('progress_visual', `${t('progress.visual')}: ${progress.visual || t('status.pending')}`);
+    set('progress_daily', `${t('progress.daily')}: ${translate_runtime_text(progress.daily || t('status.unknown'))}`);
+    set('progress_visual', `${t('progress.visual')}: ${translate_runtime_text(progress.visual || t('status.pending'))}`);
     set('progress_checkin', `${t('progress.checkin')}: ${leftover(progress.checkin, progress.checkin)}`);
     set('progress_news', `${t('progress.news')}: ${leftover(progress.news, progress.news)}`);
     set('progress_edge', `${t('progress.edge')}: ${leftover(progress.edge, progress.edge)}`);
-    set('progress_reset', `${t('progress.reset')}: ${progress.reset || t('status.resets_midnight')}`);
+    set('progress_reset', `${t('progress.reset')}: ${translate_runtime_text(progress.reset || t('status.resets_midnight'))}`);
     refresh_manual_tasks();
     const pill = document.getElementById('daily_task_pill');
     if (pill) {
