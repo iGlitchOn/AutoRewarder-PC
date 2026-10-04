@@ -38,7 +38,7 @@ function show_toast(message, type, opts) {
     '<div class="toast-msg"></div>' +
     '<button class="toast-close" aria-label="Dismiss">&times;</button>';
 
-  toast.querySelector('.toast-msg').textContent = message;
+  toast.querySelector('.toast-msg').textContent = typeof tr === 'function' ? tr(message) : message;
 
   const dismiss = () => {
     toast.classList.add('hiding');
@@ -65,16 +65,16 @@ function open_modal(opts) {
   const confirmBtn = document.getElementById('modal_confirm');
   const cancelBtn = document.getElementById('modal_cancel');
 
-  title.textContent = opts.title || '';
-  message.textContent = opts.message || '';
+  title.textContent = typeof tr === 'function' ? tr(opts.title || '') : (opts.title || '');
+  message.textContent = typeof tr === 'function' ? tr(opts.message || '') : (opts.message || '');
 
   const withInput = Boolean(opts.withInput);
   input.hidden = !withInput;
   input.value = opts.inputDefault || '';
   input.placeholder = opts.inputPlaceholder || '';
 
-  confirmBtn.textContent = opts.confirmLabel || 'OK';
-  cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+  confirmBtn.textContent = typeof tr === 'function' ? tr(opts.confirmLabel || 'OK') : (opts.confirmLabel || 'OK');
+  cancelBtn.textContent = typeof tr === 'function' ? tr(opts.cancelLabel || 'Cancel') : (opts.cancelLabel || 'Cancel');
   cancelBtn.hidden = Boolean(opts.hideCancel);
   confirmBtn.className = 'btn-primary' + (opts.danger ? ' danger' : '');
 
