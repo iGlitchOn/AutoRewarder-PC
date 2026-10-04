@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRewarder</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { display: grid; place-items: center; background: #0b0d12; font-family: "Segoe UI", Arial, sans-serif; color: #f1f5fb; }
+    .card { width: 310px; min-height: 278px; padding: 28px 28px 24px; text-align: center; border: 1px solid #30445f; border-radius: 14px; background: #17263a; box-shadow: 0 18px 45px rgba(0,0,0,.35); }
+    .logo-wrap { width: 82px; height: 82px; margin: 0 auto 18px; display: grid; place-items: center; border: 1px solid #30445f; border-radius: 50%; background: #1d3049; animation: spin 2.2s linear infinite; }
+    .logo { width: 56px; height: 56px; object-fit: contain; }
+    h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    #stage { margin: 12px 0 16px; font-size: 14px; font-weight: 700; }
+    #detail { margin: 12px 0 0; color: #9eafc5; font-size: 12px; }
+    .track { height: 6px; overflow: hidden; border-radius: 999px; background: #30445f; }
+    #bar { width: 3%; height: 100%; border-radius: inherit; background: #28c6d7; transition: width .2s ease; }
+    @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="card" aria-live="polite">
+    <div class="logo-wrap"><img class="logo" src="iglitchoff.png" alt="AutoRewarder"></div>
+    <h1 id="title">Updating AutoRewarder</h1>
+    <p id="stage">Downloading…</p>
+    <div class="track"><div id="bar"></div></div>
+    <p id="detail">Please keep AutoRewarder open.</p>
+  </main>
+  <script>
+    const COPY = {
+      en: { title: "Updating AutoRewarder", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Finished", detail: "Please keep AutoRewarder open.", error: "The update could not be installed." },
+      es: { title: "Actualizando AutoRewarder", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Finalizado", detail: "Mantén AutoRewarder abierto.", error: "No se pudo instalar la actualización." },
+      pt: { title: "Atualizando o AutoRewarder", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Concluído", detail: "Mantenha o AutoRewarder aberto.", error: "Não foi possível instalar a atualização." },
+      zh: { title: "正在更新 AutoRewarder", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "已完成", detail: "请保持 AutoRewarder 开启。", error: "无法安装更新。" }
+    };
+    let lang = "en";
+    function copy(key) { return (COPY[lang] || COPY.en)[key] || COPY.en[key]; }
+    function render(stage, progress) {
+      document.getElementById("title").textContent = copy("title");
+      document.getElementById("stage").textContent = copy(stage || "installing");
+      document.getElementById("detail").textContent = copy("detail");
+      const base = { downloading: 0, installing: 35, replacing: 65, cleaning: 85, finished: 100 }[stage] || 0;
+      const fraction = typeof progress === "number" ? progress : 0;
+      const value = stage === "downloading" ? Math.min(35, fraction * 35) : Math.max(base, base + fraction * 15);
+      document.getElementById("bar").style.width = Math.round(value) + "%";
+    }
+    function update_progress(stage, progress) { render(stage, progress); }
+    window.addEventListener("pywebviewready", function () {
+      pywebview.api.get_settings().then(function (settings) {
+        lang = settings.ui_locale || "en";
+        render("downloading", 0);
+        return pywebview.api.start_pending_update();
+      }).then(function (result) {
+        if (!result || !result.ok) {
+          document.getElementById("stage").textContent = copy("error");
+          document.getElementById("detail").textContent = (result && result.error) || copy("detail");
+          return pywebview.api.restore_after_update_error();
+        }
+      }).catch(function () {
+        document.getElementById("stage").textContent = copy("error");
+        pywebview.api.restore_after_update_error();
+      });
+    });
+  </script>
+</body>
+</html>

@@ -292,6 +292,10 @@ function cancel_custom_update() {
 
 function download_custom_update() {
   if (!_custom_update_url) return;
+  if (window.pywebview && pywebview.api && typeof pywebview.api.open_update_window === 'function') {
+    pywebview.api.open_update_window(_custom_update_url, _custom_update_asset_name);
+    return;
+  }
   if (window.pywebview && pywebview.api && typeof pywebview.api.download_and_install_update === 'function') {
     show_update_modal();
     const button = document.getElementById('updates_download_btn');

@@ -121,6 +121,9 @@ class AutoRewarderAPI:
 
     def __init__(self):
         self._webview_window = None
+        self._update_window = None
+        self._update_window_close_allowed = False
+        self._pending_update = None
         self._driver_loader_thread_started = False
         self._update_check_started = False
         # Single-instance secondary windows: reused (and reloaded) instead of
@@ -786,9 +789,15 @@ class AutoRewarderAPI:
                 self.shutdown()
             except Exception:
                 pass
+            self._update_window_close_allowed = True
             try:
                 if self._webview_window:
                     self._webview_window.destroy()
+            except Exception:
+                pass
+            try:
+                if self._update_window:
+                    self._update_window.destroy()
             except Exception:
                 pass
             self._report_update_progress("finished", 1.0)
@@ -798,13 +807,78 @@ class AutoRewarderAPI:
         threading.Thread(target=_exit_for_update, daemon=True).start()
         return {"ok": True, "restarting": True}
 
+    def open_update_window(self, url, asset_name):
+        """Open the borderless update window and hide the main UI."""
+        import webview
+
+        self._pending_update = {
+            "url": str(url or ""),
+            "asset_name": str(asset_name or ""),
+        }
+        if self._update_window is not None and self._update_window in webview.windows:
+            self._update_window.show()
+            return {"ok": True}
+        if self._webview_window is not None:
+            self._webview_window.hide()
+        self._update_window_close_allowed = False
+        self._update_window = webview.create_window(
+            title="",
+            url=os.path.join(GUI_DIR, "updater.html"),
+            js_api=self,
+            width=440,
+            height=365,
+            resizable=False,
+            frameless=True,
+            easy_drag=False,
+            on_top=True,
+            background_color="#0b0d12",
+        )
+        try:
+            self._update_window.events.closing += self._block_update_window_close
+        except Exception:
+            pass
+        return {"ok": True}
+
+    def get_pending_update(self):
+        return dict(self._pending_update or {})
+
+    def start_pending_update(self):
+        pending = self._pending_update or {}
+        if not pending.get("url") or not pending.get("asset_name"):
+            return {"ok": False, "error": "No update package selected."}
+        return self.download_and_install_update(
+            pending["url"], pending["asset_name"]
+        )
+
+    def restore_after_update_error(self):
+        """Return to the main UI if the update cannot be applied."""
+        self._update_window_close_allowed = True
+        window = self._update_window
+        self._update_window = None
+        self._pending_update = None
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:
+                pass
+        if self._webview_window is not None:
+            try:
+                self._webview_window.show()
+            except Exception:
+                pass
+        return {"ok": True}
+
+    def _block_update_window_close(self, *_args):
+        return bool(self._update_window_close_allowed)
+
     def _report_update_progress(self, stage, progress=None):
-        """Push updater progress into the in-app modal while it is visible."""
-        if not self._webview_window:
+        """Push progress into the dedicated borderless updater window."""
+        window = self._update_window or self._webview_window
+        if not window:
             return
         try:
-            self._webview_window.evaluate_js(
-                "update_update_progress(%s, %s)"
+            window.evaluate_js(
+                "update_progress(%s, %s)"
                 % (json.dumps(stage), json.dumps(progress))
             )
         except Exception:
