@@ -163,11 +163,11 @@
     </div>
 
     <section class="card pair-screen" id="pair_screen">
-      <div class="card-label">Vincular al PC</div>
-      <p class="manual-hint" id="pair_hint">En el PC: Account → Vincular un celular. Escribe el código o pulsa el cuadrado para abrir la cámara y escanear el QR.</p>
+      <div class="card-label" data-i18n="phone.bind_pc">Vincular al PC</div>
+      <p class="manual-hint" id="pair_hint" data-i18n="phone.pair_hint">En el PC: Account → Vincular un celular. Escribe el código o pulsa el cuadrado para abrir la cámara y escanear el QR.</p>
       <div class="pair-row">
         <input id="pair_code" class="code-input" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="Código">
-        <button class="qr-square" type="button" onclick="scanQr()" title="Escanear QR" aria-label="Escanear QR">
+        <button class="qr-square" type="button" onclick="scanQr()" title="Escanear QR" aria-label="Escanear QR" data-i18n="scan_qr">
           <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7" rx="1"></rect>
             <rect x="14" y="3" width="7" height="7" rx="1"></rect>
@@ -177,7 +177,7 @@
           </svg>
         </button>
       </div>
-      <button class="primary-btn-lg" type="button" onclick="doPair()">Vincular</button>
+      <button class="primary-btn-lg" type="button" onclick="doPair()" data-i18n="phone.pair">Vincular</button>
       <p class="form-hint pair-status" id="pair_status">Buscando el PC…</p>
     </section>
 
@@ -186,7 +186,7 @@
       <p class="form-hint" id="offline_hint" hidden></p>
 
       <section class="card account-card">
-        <div class="card-label">Cuenta</div>
+        <div class="card-label" data-i18n="account">Cuenta</div>
         <div class="phone-row">
           <span class="avatar" id="ms_avatar">MS</span>
           <span class="account-info">
@@ -214,22 +214,22 @@
       </section>
 
       <section class="card stats-card">
-        <div class="card-label">Puntos</div>
+        <div class="card-label" data-i18n="phone.points">Puntos</div>
         <div class="stats-tiles">
           <div class="stat-tile">
             <span class="stat-value" id="stat_total">—</span>
-            <span class="stat-label">Total</span>
+            <span class="stat-label" data-i18n="phone.total">Total</span>
           </div>
           <div class="stat-tile">
             <span class="stat-value" id="stat_today">—</span>
-            <span class="stat-label">Hoy</span>
+            <span class="stat-label" data-i18n="phone.today">Hoy</span>
           </div>
         </div>
       </section>
 
       <section class="card rewards-card">
         <div class="card-header">
-          <div class="card-label">Rewards</div>
+          <div class="card-label" data-i18n="rewards_overview">Rewards</div>
           <span class="ghost-link" id="rewards_region">Colombia</span>
         </div>
         <div class="rewards-summary">
@@ -249,7 +249,7 @@
 
       <section class="card run-card" id="phone_tasks_card">
         <div class="card-header">
-          <div class="card-label">En este celular</div>
+          <div class="card-label" data-i18n="phone.on_device">En este celular</div>
           <span class="bing-pill" id="bing_pill">Bing: …</span>
         </div>
         <p class="bing-banner" id="bing_banner" hidden></p>
@@ -265,7 +265,7 @@
       </section>
 
       <section class="card run-card">
-        <div class="card-label">Correr en el PC</div>
+        <div class="card-label" data-i18n="phone.run_on_pc">Correr en el PC</div>
         <div class="count-group" style="margin-bottom:10px">
           <label class="count-field">PC <input type="number" id="count_pc" min="0" max="130" value="15" onchange="saveQueries()"></label>
           <label class="count-field">Móvil <input type="number" id="count_mobile" min="0" max="99" value="15" onchange="saveQueries()"></label>
@@ -273,18 +273,18 @@
         <div class="run-actions pc-actions">
           <button class="primary-btn-lg" id="pc_start_btn" type="button" onclick="runPc('start')" disabled>Iniciar en PC</button>
           <button class="tasks-only-btn" id="pc_tasks_btn" type="button" onclick="runPc('tasks')" disabled>Solo tareas</button>
-          <button class="tasks-only-btn" id="pc_edge_btn" type="button" onclick="runPc('edge')" disabled>Edge 30 min</button>
+          <button class="tasks-only-btn" id="pc_edge_btn" type="button" onclick="runPc('edge')" disabled data-i18n="phone.edge_30">Edge 30 min</button>
           <button class="stop-btn" id="pc_stop_btn" type="button" onclick="stopPc()" disabled>Detener</button>
         </div>
         <p class="run-block-reason" id="run_block_reason" hidden></p>
       </section>
 
       <section class="card activity-card">
-        <div class="card-label">Actividad</div>
+        <div class="card-label" data-i18n="phone.activity">Actividad</div>
         <div id="log_area" class="activity-feed"></div>
       </section>
 
-      <button class="phone-mini" type="button" onclick="unlinkPhone()">Desvincular este celular</button>
+    <button class="phone-mini" type="button" onclick="unlinkPhone()" data-i18n="phone.unlink_this">Desvincular este celular</button>
     </div>
 
     <div class="bottom-space" aria-hidden="true"></div>

@@ -187,10 +187,10 @@ function showMain() {
   document.getElementById("ms_name").textContent = state.account || "Microsoft account";
   document.getElementById("ms_avatar").textContent = initials(state.account || "MS");
   document.getElementById("ph_name").textContent = state.phone || deviceName();
-  const ready = state.ready ? "Listo" : "Falta setup en el PC";
+  const ready = state.ready ? t("phone.ready") : t("phone.setup_pending");
   const mem = state.membership || "Microsoft Rewards";
-  document.getElementById("ms_meta").textContent = ready + " · " + mem + " · by Microsoft";
-  document.getElementById("ph_meta").textContent = ready + " · " + mem + " · by phone";
+  document.getElementById("ms_meta").textContent = ready + " · " + mem + " · " + t("by_microsoft");
+  document.getElementById("ph_meta").textContent = ready + " · " + mem + " · " + t("phone.companion");
   updateBingUi();
 }
 
@@ -502,17 +502,17 @@ async function refreshOverview() {
       if (obj && typeof obj === "object" && obj.label) return obj.label;
       return fallback || "—";
     };
-    set("progress_pc", "PC: " + frac(progress.pc));
-    set("progress_mobile", "Mobile: " + frac(progress.mobile));
-    set("progress_daily", "Daily: " + (progress.daily || "—"));
-    set("progress_visual", "Visual: " + (progress.visual || "—"));
-    set("progress_checkin", "Check-in: " + frac(progress.checkin, progress.checkin));
-    set("progress_news", "News: " + frac(progress.news, progress.news));
-    set("progress_edge", "Edge: " + frac(progress.edge, progress.edge));
+    set("progress_pc", t("label.pc") + ": " + frac(progress.pc));
+    set("progress_mobile", t("label.mobile") + ": " + frac(progress.mobile));
+    set("progress_daily", t("progress.daily") + ": " + (progress.daily || "—"));
+    set("progress_visual", t("progress.visual") + ": " + (progress.visual || "—"));
+    set("progress_checkin", t("progress.checkin") + ": " + frac(progress.checkin, progress.checkin));
+    set("progress_news", t("progress.news") + ": " + frac(progress.news, progress.news));
+    set("progress_edge", t("progress.edge") + ": " + frac(progress.edge, progress.edge));
     set("progress_reset", progress.reset || "—");
     const st = document.getElementById("status_text");
     const dot = document.getElementById("dot");
-    if (st) st.textContent = data.running ? "El PC está corriendo" : "Vinculado al PC · listo";
+    if (st) st.textContent = data.running ? t("phone.pc_running") : t("phone.linked_ready");
     if (dot) dot.style.background = data.running ? "var(--warning)" : "var(--success)";
     const hint = document.getElementById("offline_hint");
     if (hint) hint.hidden = true;
@@ -549,7 +549,7 @@ async function saveQueries() {
   const mobile = Number((document.getElementById("count_mobile") || {}).value || 0);
   try {
     await request("POST", "/pc/queries", { pc: pc, mobile: mobile });
-    log("Búsquedas: PC " + pc + " / móvil " + mobile);
+    log(tf("phone.searches_saved", { pc: pc, mobile: mobile }));
   } catch (e) {
     log("No se guardaron las búsquedas en el PC.");
   }
@@ -567,7 +567,7 @@ async function pollJobs() {
 function handleJob(job) {
   state.pendingJob = job;
   const kind = job.kind;
-  log("PC job: " + kind);
+  log(tf("phone.pc_job", { kind: kind }));
   runPhone(kind);
 }
 
@@ -606,7 +606,7 @@ async function stopPc() {
     if (data && (data.ok || data.stopped)) {
       log("PC stop enviado.");
       const st = document.getElementById("status_text");
-      if (st) st.textContent = "Stopped";
+      if (st) st.textContent = t("run.stop");
     } else {
       log("Stop falló: " + JSON.stringify(data));
     }

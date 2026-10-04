@@ -593,11 +593,11 @@ function set_stats_loading(on) {
   if (txt === 'Running…') return;  // a run owns the button; leave it alone
   if (balanceFetching) {
     btn.disabled = true;
-    if (label) label.textContent = 'Loading…';
+    if (label) label.textContent = t('run.loading_short');
   } else {
     const current = accountsCache.find(a => a.id === currentAccountId);
     btn.disabled = !(current && current.first_setup_done) || driverWarmingUp;
-    if (label && !driverWarmingUp) label.textContent = 'Start run';
+    if (label && !driverWarmingUp) label.textContent = t('run.start');
   }
 }
 
@@ -657,38 +657,38 @@ function refresh_rewards_overview() {
     const leftover = (obj, fallback) => {
       if (obj && typeof obj === 'object' && obj.label) {
         const left = obj.left;
-        if (left > 0) return `${obj.label} (${left} left)`;
-        return `${obj.label} done`;
+        if (left > 0) return `${obj.label} (${left} ${t('left')})`;
+        return `${obj.label} ${t('status.done')}`;
       }
       const s = String(fallback || obj || '');
       const m = s.match(/(\d+)\s*\/\s*(\d+)/);
       if (m) {
         const left = Math.max(0, parseInt(m[2], 10) - parseInt(m[1], 10));
-        return left ? `${m[1]}/${m[2]} (${left} left)` : `${m[1]}/${m[2]} done`;
+        return left ? `${m[1]}/${m[2]} (${left} ${t('left')})` : `${m[1]}/${m[2]} ${t('status.done')}`;
       }
-      return s || 'pending';
+      return s || t('status.pending');
     };
     set('progress_pc', `${t('label.pc')}: ${leftover(progress.pc, (progress.pc || {}).label)}`);
     set('progress_mobile', `${t('label.mobile')}: ${leftover(progress.mobile, (progress.mobile || {}).label)}`);
-    set('progress_daily', `${t('progress.daily')}: ${progress.daily || 'unknown'}`);
-    set('progress_visual', `${t('progress.visual')}: ${progress.visual || 'pending'}`);
+    set('progress_daily', `${t('progress.daily')}: ${progress.daily || t('status.unknown')}`);
+    set('progress_visual', `${t('progress.visual')}: ${progress.visual || t('status.pending')}`);
     set('progress_checkin', `${t('progress.checkin')}: ${leftover(progress.checkin, progress.checkin)}`);
     set('progress_news', `${t('progress.news')}: ${leftover(progress.news, progress.news)}`);
     set('progress_edge', `${t('progress.edge')}: ${leftover(progress.edge, progress.edge)}`);
-    set('progress_reset', `${t('progress.reset')}: ${progress.reset || 'resets at midnight'}`);
+    set('progress_reset', `${t('progress.reset')}: ${progress.reset || t('status.resets_midnight')}`);
     refresh_manual_tasks();
     const pill = document.getElementById('daily_task_pill');
     if (pill) {
       const state = progress.daily_state || 'pending';
       pill.dataset.state = state;
-      if (state === 'done') pill.textContent = `${t('status.daily')}: done`;
-      else if (state === 'partial') pill.textContent = `${t('status.daily')}: ${progress.daily || 'partial'}`;
-      else pill.textContent = `${t('status.daily')}: pending`;
+      if (state === 'done') pill.textContent = `${t('status.daily')}: ${t('status.done')}`;
+      else if (state === 'partial') pill.textContent = `${t('status.daily')}: ${progress.daily || t('status.partial')}`;
+      else pill.textContent = `${t('status.daily')}: ${t('status.pending')}`;
     }
     const current = accountsCache.find(a => a.id === currentAccountId);
     const meta = document.getElementById('current_meta');
     if (current && meta) {
-      meta.textContent = `${current.first_setup_done ? 'Ready to run' : 'Setup pending'} · ${level} · ${region} · by Microsoft`;
+      meta.textContent = `${current.first_setup_done ? t('account.ready_to_run') : t('account.setup_pending')} · ${level} · ${region} · ${t('by_microsoft')}`;
     }
     refresh_phone_ui();
   }).catch(function (err) { console.error('refresh_rewards_overview failed:', err); });
@@ -708,7 +708,7 @@ function hideBrowserToggle() {
   if (!toggle) return;
   const hidden = Boolean(toggle.checked);
   pywebview.api.set_hide_browser(hidden).then(() => {
-    show_toast(hidden ? 'Hide browser on. Saved.' : 'Hide browser off. Saved.', 'success');
+    show_toast(hidden ? tf('hide_browser_on') : tf('hide_browser_off'), 'success');
   }).catch(err => console.error('set_hide_browser failed:', err));
 }
 
@@ -735,7 +735,7 @@ function render_account_menu() {
   if (accountsCache.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'accounts-empty';
-    empty.textContent = 'No accounts yet';
+    empty.textContent = t('no_accounts');
     menu.appendChild(empty);
   } else {
     for (const acc of accountsCache) {
@@ -753,7 +753,7 @@ function render_account_menu() {
       name.textContent = acc.label;
       const meta = document.createElement('span');
       meta.className = 'account-option-meta';
-      meta.textContent = acc.first_setup_done ? 'Ready' : 'Setup pending';
+      meta.textContent = acc.first_setup_done ? t('account.ready') : t('account.setup_pending');
       info.appendChild(name);
       info.appendChild(meta);
       btn.appendChild(info);
@@ -796,7 +796,7 @@ function render_account_menu() {
   addBtn.className = 'menu-action';
   addBtn.innerHTML =
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
-    '<span>Add account</span>';
+    `<span>${t('add_account')}</span>`;
   addBtn.addEventListener('click', () => {
     toggle_account_menu(false);
     prompt_and_create_account();
@@ -810,7 +810,7 @@ function render_account_menu() {
     manageBtn.style.color = 'var(--text-muted)';
     manageBtn.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>' +
-      '<span>Manage accounts…</span>';
+      `<span>${t('manage_accounts')}…</span>`;
     manageBtn.addEventListener('click', () => {
       toggle_account_menu(false);
       open_accounts_modal();
@@ -833,13 +833,13 @@ function render_account_trigger() {
     avatarEl.textContent = avatar_initials(current.label);
     avatarEl.style.backgroundColor = avatar_color(current.id);
     labelEl.textContent = current.label;
-    metaEl.textContent = current.first_setup_done ? 'Ready to run · by Microsoft' : 'Setup pending · by Microsoft';
+    metaEl.textContent = current.first_setup_done ? `${t('account.ready_to_run')} · ${t('by_microsoft')}` : `${t('account.setup_pending')} · ${t('by_microsoft')}`;
     if (deleteBtn) deleteBtn.hidden = false;
   } else {
     avatarEl.textContent = '+';
     avatarEl.style.backgroundColor = 'var(--surface-3)';
-    labelEl.textContent = 'No account yet';
-    metaEl.textContent = accountsCache.length ? 'Select one below' : 'Add your first account';
+    labelEl.textContent = t('account.no_account');
+    metaEl.textContent = accountsCache.length ? t('account.select_below') : t('account.add_first');
     if (deleteBtn) deleteBtn.hidden = true;
   }
 }
@@ -940,11 +940,11 @@ function open_settings_modal() {
     if (startup && !startup.supported) {
       startupRow.classList.add('row-disabled');
       startupToggle.disabled = true;
-      startupHint.textContent = 'Available on Windows and Linux only.';
+      startupHint.textContent = t('settings.windows_linux');
     } else {
       startupRow.classList.remove('row-disabled');
       startupToggle.disabled = false;
-      startupHint.textContent = "Automatically run AutoRewarder in the background at each account's scheduled time.";
+      startupHint.textContent = t('settings.background_hint');
     }
 
     const openOnLoginToggle = document.getElementById('openOnLoginToggle');
@@ -954,11 +954,11 @@ function open_settings_modal() {
     if (openOnLogin && !openOnLogin.supported) {
       openOnLoginRow.classList.add('row-disabled');
       openOnLoginToggle.disabled = true;
-      openOnLoginHint.textContent = 'Available on Windows only.';
+      openOnLoginHint.textContent = t('settings.windows_only');
     } else {
       openOnLoginRow.classList.remove('row-disabled');
       openOnLoginToggle.disabled = false;
-      openOnLoginHint.textContent = 'When you sign in to Windows, run leftover searches and daily tasks. If everything is already done, AutoRewarder closes.';
+      openOnLoginHint.textContent = t('settings.login_hint');
     }
 
     // Close-to-tray toggle — default to true if the API failed.
@@ -995,7 +995,7 @@ function open_settings_modal() {
     if (localeHint) {
       const eff = cfg.effective_locale || 'en-US';
       localeHint.textContent =
-        `Detected language: ${eff}. Leave "auto" to follow your system, or enter a locale like fr-FR.`;
+        tf('settings.detected_language', { locale: eff });
     }
     apply_llm_field_state();
   }).catch(err => {
@@ -1041,17 +1041,17 @@ function render_schedule_cards(schedules) {
 }
 
 function format_schedule_summary(item, sched, enabled) {
-  const prefix = item.first_setup_done ? '' : 'Setup pending · ';
-  if (!enabled) return prefix + 'Schedule off';
+  const prefix = item.first_setup_done ? '' : t('account.setup_pending') + ' · ';
+  if (!enabled) return prefix + t('schedule_off');
   const pc = sched.queries_pc != null ? sched.queries_pc : 15;
   const mobile = sched.queries_mobile != null ? sched.queries_mobile : 15;
   const time = (sched.run_time && /^\d{2}:\d{2}$/.test(sched.run_time)) ? sched.run_time : '09:00';
   if (sched.advancedScheduling) {
     const dur = sched.runDuration != null ? sched.runDuration : 3;
     const qph = sched.queriesPerHour != null ? sched.queriesPerHour : 10;
-    return `${prefix}${time} · PC ${pc} / Mobile ${mobile} · ${dur}h @ ${qph}/h`;
+    return `${prefix}${time} · ${t('label.pc')} ${pc} / ${t('label.mobile')} ${mobile} · ${dur}h @ ${qph}/h`;
   }
-  return `${prefix}${time} · PC ${pc} / Mobile ${mobile}`;
+  return `${prefix}${time} · ${t('label.pc')} ${pc} / ${t('label.mobile')} ${mobile}`;
 }
 
 function build_schedule_card(item) {
@@ -1509,7 +1509,7 @@ function start_loader() {
         const loader = document.createElement('div');
         loader.id = 'inline_loader';
         loader.className = 'loader-line';
-        loader.innerHTML = '<span class="spinner"></span><span>Preparing the browser driver…</span>';
+        loader.innerHTML = `<span class="spinner"></span><span>${t('settings.preparing_driver')}</span>`;
         logDiv.appendChild(loader);
         logDiv.scrollTop = logDiv.scrollHeight;
       }
@@ -1728,8 +1728,8 @@ function render_manual_tasks(data) {
     const empty = document.createElement('p');
     empty.className = 'manual-empty';
     empty.textContent = data && data.refreshing
-      ? 'Detecting quests automatically from Rewards /earn…'
-      : 'No open quests detected yet. The list refreshes automatically.';
+      ? t('tasks.detecting')
+      : t('tasks.empty');
     list.appendChild(empty);
   }
   active.forEach(function (t) { list.appendChild(_manual_row(t, false)); });
@@ -1759,7 +1759,7 @@ function _manual_row(task, isIgnored) {
   const openBtn = document.createElement('button');
   openBtn.type = 'button';
   openBtn.className = 'btn-secondary';
-  openBtn.textContent = 'Open';
+  openBtn.textContent = t('tasks.open');
   openBtn.onclick = function () {
     if (window.pywebview && pywebview.api) pywebview.api.open_manual_task(task.id);
   };
@@ -1768,7 +1768,7 @@ function _manual_row(task, isIgnored) {
     const un = document.createElement('button');
     un.type = 'button';
     un.className = 'ghost-link';
-    un.textContent = 'Unignore';
+    un.textContent = t('tasks.unignore');
     un.onclick = function () {
       pywebview.api.ignore_manual_task(task.id, false).then(render_manual_tasks);
     };
@@ -1777,7 +1777,7 @@ function _manual_row(task, isIgnored) {
     const ign = document.createElement('button');
     ign.type = 'button';
     ign.className = 'ghost-link';
-    ign.textContent = 'Ignore';
+    ign.textContent = t('tasks.ignore');
     ign.onclick = function () {
       pywebview.api.ignore_manual_task(task.id, true).then(render_manual_tasks);
     };
@@ -1785,7 +1785,7 @@ function _manual_row(task, isIgnored) {
     const rm = document.createElement('button');
     rm.type = 'button';
     rm.className = 'ghost-link danger-link';
-    rm.textContent = 'Remove';
+    rm.textContent = t('tasks.remove');
     rm.onclick = function () {
       pywebview.api.remove_manual_task(task.id).then(render_manual_tasks);
     };
@@ -1920,7 +1920,7 @@ function render_phone_device(info) {
       const ask = document.createElement('button');
       ask.type = 'button';
       ask.className = 'phone-mini';
-      ask.textContent = 'Check-in';
+      ask.textContent = t('checkin');
       ask.title = 'Ask this phone to open Bing check-in';
       ask.addEventListener('click', function () {
         pywebview.api.send_phone_job('checkin').then(function (r) {
@@ -1931,7 +1931,7 @@ function render_phone_device(info) {
       const news = document.createElement('button');
       news.type = 'button';
       news.className = 'phone-mini';
-      news.textContent = 'News';
+      news.textContent = t('news');
       news.addEventListener('click', function () {
         pywebview.api.send_phone_job('news').then(function (r) {
           if (!r || !r.ok) show_toast((r && r.error) || 'Phone offline', 'warning');
@@ -1941,7 +1941,7 @@ function render_phone_device(info) {
       const unlink = document.createElement('button');
       unlink.type = 'button';
       unlink.className = 'phone-mini';
-      unlink.textContent = 'Unlink';
+      unlink.textContent = t('unlink');
       unlink.addEventListener('click', function () {
         unlink.disabled = true;
         pywebview.api.unlink_phone(phone.id).then(function (info) {
