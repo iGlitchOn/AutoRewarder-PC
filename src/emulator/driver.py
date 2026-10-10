@@ -285,6 +285,7 @@ class DriverManager:
             options.add_argument("--disable-dev-shm-usage")
             # Stop Edge from spawning a second process and exiting the first.
             options.add_argument("--edge-skip-compat-layer-relaunch")
+            options.add_argument("--autorewarder-session")
             options.add_argument(
                 "--disable-features=msEdgeStartupBoost,msEdgeSleepingTabs"
             )
@@ -444,9 +445,7 @@ class DriverManager:
     @staticmethod
     def _edge_kill_powershell(profile=None, all_accounts=False):
         needles = [
-            "--test-type=webdriver",
-            "AutoRewarder\\accounts",
-            "AutoRewarder/accounts",
+            "--autorewarder-session",
         ]
         if profile:
             needles.insert(0, profile)
@@ -580,8 +579,7 @@ class DriverManager:
                 "-ErrorAction SilentlyContinue | "
                 "Where-Object { "
                 '$_.CommandLine -like "*$profile*" -or '
-                "$_.CommandLine -like '*--test-type=webdriver*' -or "
-                "$_.CommandLine -like '*--edge-skip-compat-layer-relaunch*' "
+                "$_.CommandLine -like '*--autorewarder-session*' "
                 "} | "
                 "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
                 "-ErrorAction SilentlyContinue }"
@@ -647,6 +645,7 @@ class DriverManager:
             "--no-first-run",
             "--no-default-browser-check",
             "--edge-skip-compat-layer-relaunch",
+            "--autorewarder-session",
             "--disable-features=msEdgeStartupBoost,msEdgeSleepingTabs",
             "--disable-background-mode",
             f"--remote-debugging-port={port}",
