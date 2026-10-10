@@ -21,44 +21,61 @@
       padding: 30px 28px 25px;
       text-align: center;
       border-radius: 12px;
-      background: #2b2d31;
-      border: 1px solid #42444b;
+      background: #313338;
       box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
     .logo-stage {
       position: relative;
-      width: 104px;
-      height: 104px;
+      width: 80px;
+      height: 80px;
       margin: 0 auto 22px;
       display: grid;
       place-items: center;
       border-radius: 50%;
-      background: #363940;
-      border: 1px solid #4a4d55;
-      box-shadow: 0 0 0 8px rgba(88, 101, 242, .05), 0 10px 22px rgba(0, 0, 0, .22);
+      background: #2b2d31;
+      border: 1px solid #1e1f22;
+      box-shadow: 0 0 0 6px rgba(88, 101, 242, .05), 0 8px 18px rgba(0, 0, 0, .22);
       animation: stage-breathe 2.6s ease-in-out infinite;
     }
     .logo {
       position: relative;
       z-index: 2;
-      width: 72px;
-      height: 72px;
+      width: 48px;
+      height: 48px;
       object-fit: contain;
+      image-rendering: high-quality;
       animation: logo-float 2.4s ease-in-out infinite;
     }
-    .orbit { position: absolute; inset: 10px; border: 1px solid rgba(88, 101, 242, .7); border-left-color: transparent; border-radius: 50%; animation: orbit-spin 2.8s linear infinite; }
+    .orbit { position: absolute; inset: 6px; border: 1px solid rgba(88, 101, 242, .7); border-left-color: transparent; border-radius: 50%; animation: orbit-spin 2.8s linear infinite; }
     .orbit::after { content: ""; position: absolute; top: -3px; left: 50%; width: 6px; height: 6px; border-radius: 50%; background: #7280ff; box-shadow: 0 0 10px #5865f2; }
     .loading-dots { height: 10px; margin-top: 14px; }
     .loading-dots i { display: inline-block; width: 5px; height: 5px; margin: 0 3px; border-radius: 50%; background: #7280ff; animation: dot-pulse 1.2s ease-in-out infinite; }
     .loading-dots i:nth-child(2) { animation-delay: .16s; }
     .loading-dots i:nth-child(3) { animation-delay: .32s; }
-    h1 { margin: 0; font-size: 16px; font-weight: 600; }
-    #stage { margin: 16px 0 17px; font-size: 14px; font-weight: 700; }
-    #detail { margin: 14px 0 0; color: #b5bac1; font-size: 12px; }
-    .track { height: 6px; overflow: hidden; border-radius: 999px; background: #484b51; }
+    h1 { margin: 0; font-size: 16px; font-weight: 600; color: #f2f3f5; }
+    #stage { margin: 16px 0 17px; font-size: 14px; font-weight: 700; color: #dbdee1; }
+    #detail { margin: 14px 0 0; color: #949ba4; font-size: 12px; line-height: 1.4; }
+    .track { width: 100%; height: 6px; overflow: hidden; border-radius: 999px; background: #4e5058; }
     #bar { width: 2%; height: 100%; border-radius: inherit; background: #5865f2; transition: width .24s ease; }
+    #abort-btn {
+      display: none;
+      margin-top: auto;
+      padding: 8px 16px;
+      background: #da373c;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    #abort-btn:hover { background: #c93338; }
     @keyframes stage-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-    @keyframes logo-float { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-5px) rotate(3deg); } }
+    @keyframes logo-float { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-3px) rotate(3deg); } }
     @keyframes orbit-spin { to { transform: rotate(360deg); } }
     @keyframes dot-pulse { 0%, 100% { opacity: .35; transform: translateY(0) scale(.8); } 50% { opacity: 1; transform: translateY(-3px) scale(1); } }
   </style>
@@ -68,16 +85,17 @@
     <div class="logo-stage"><span class="orbit" aria-hidden="true"></span><img class="logo" src="autorewarder-icon.ico" alt="AutoRewarder"></div>
     <h1 id="title">Updating AutoRewarder</h1>
     <p id="stage">Closing AutoRewarder…</p>
-    <div class="track"><div id="bar"></div></div>
-    <div class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="track" id="track-container"><div id="bar"></div></div>
+    <div class="loading-dots" id="dots-container" aria-hidden="true"><i></i><i></i><i></i></div>
     <p id="detail">The new version will open automatically.</p>
+    <button id="abort-btn" onclick="abortUpdate()">Abort / Cancel</button>
   </main>
   <script>
     const COPY = {
-      en: { title: "Updating AutoRewarder", closing: "Closing AutoRewarder…", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Opening the new version…", detail: "The new version will open automatically.", error: "The update could not be installed." },
-      es: { title: "Actualizando AutoRewarder", closing: "Cerrando AutoRewarder…", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Abriendo la nueva versión…", detail: "La nueva versión se abrirá automáticamente.", error: "No se pudo instalar la actualización." },
-      pt: { title: "Atualizando o AutoRewarder", closing: "Fechando o AutoRewarder…", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Abrindo a nova versão…", detail: "A nova versão será aberta automaticamente.", error: "Não foi possível instalar a atualização." },
-      zh: { title: "正在更新 AutoRewarder", closing: "正在关闭 AutoRewarder…", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "正在打开新版本…", detail: "新版本会自动打开。", error: "无法安装更新。" }
+      en: { title: "Updating AutoRewarder", closing: "Closing AutoRewarder…", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Opening the new version…", detail: "The new version will open automatically.", error: "The update could not be installed.", abort: "Abort / Cancel" },
+      es: { title: "Actualizando AutoRewarder", closing: "Cerrando AutoRewarder…", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Abriendo la nueva versión…", detail: "La nueva versión se abrirá automáticamente.", error: "No se pudo instalar la actualización.", abort: "Abortar / Cancelar" },
+      pt: { title: "Atualizando o AutoRewarder", closing: "Fechando o AutoRewarder…", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Abrindo a nova versão…", detail: "A nova versão será aberta automaticamente.", error: "Não foi possível instalar a atualização.", abort: "Abortar / Cancelar" },
+      zh: { title: "正在更新 AutoRewarder", closing: "正在关闭 AutoRewarder…", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "正在打开新版本…", detail: "新版本会自动打开。", error: "无法安装更新。", abort: "中止 / 取消" }
     };
     let lang = "en";
     function copy(key) { return (COPY[lang] || COPY.en)[key] || COPY.en[key]; }
@@ -85,12 +103,23 @@
       document.getElementById("title").textContent = copy("title");
       document.getElementById("stage").textContent = stage === "error" ? copy("error") : copy(stage || "installing");
       document.getElementById("detail").textContent = detail || copy("detail");
-      const base = { closing: 0, downloading: 5, installing: 35, replacing: 65, cleaning: 85, finished: 100 }[stage] || 0;
-      const fraction = typeof progress === "number" ? progress : 0;
-      const value = stage === "downloading" ? Math.min(35, 5 + fraction * 30) : Math.max(base, base + fraction * 15);
-      document.getElementById("bar").style.width = Math.round(value) + "%";
+      document.getElementById("abort-btn").textContent = copy("abort");
+      
+      if (stage === "error") {
+        document.getElementById("track-container").style.display = "none";
+        document.getElementById("dots-container").style.display = "none";
+        document.getElementById("abort-btn").style.display = "block";
+      } else {
+        const base = { closing: 0, downloading: 5, installing: 35, replacing: 65, cleaning: 85, finished: 100 }[stage] || 0;
+        const fraction = typeof progress === "number" ? progress : 0;
+        const value = stage === "downloading" ? Math.min(35, 5 + fraction * 30) : Math.max(base, base + fraction * 15);
+        document.getElementById("bar").style.width = Math.round(value) + "%";
+      }
     }
     function update_progress(stage, progress, detail) { render(stage, progress, detail); }
+    function abortUpdate() {
+      if (window.pywebview) { pywebview.api.abort(); }
+    }
     window.addEventListener("pywebviewready", function () {
       pywebview.api.get_settings().then(function (settings) {
         lang = settings.ui_locale || "en";

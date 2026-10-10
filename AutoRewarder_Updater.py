@@ -51,6 +51,12 @@ class UpdaterAPI:
         self.args = args
         self.window = None
         self.started = False
+        self.can_close = False
+
+    def abort(self):
+        self.can_close = True
+        if self.window:
+            self.window.destroy()
 
     def get_settings(self):
         return {"ui_locale": self.args.language or "en"}
@@ -163,7 +169,7 @@ def main():
         background_color="#0b0d12",
     )
     api.window = window
-    window.events.closing += lambda *_args: False
+    window.events.closing += lambda *_args: not api.can_close
     webview.start()
 
 
