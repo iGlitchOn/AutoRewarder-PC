@@ -11,13 +11,12 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
 import webview
 
-from src.config import GUI_DIR
+from src.config import GUI_DIR, ASSETS_DIR
 from src.utils import (
     download_release_asset,
     extract_release_package,
@@ -52,9 +51,12 @@ class UpdaterAPI:
         self.window = None
         self.started = False
         self.can_close = False
+        self.icon = None
 
     def abort(self):
         self.can_close = True
+        if self.icon:
+            self.icon.stop()
         if self.window:
             self.window.destroy()
 
@@ -96,23 +98,32 @@ class UpdaterAPI:
                     "downloading", (done / total) if total else None
                 ),
             )
-            root = extract_release_package(package)
-            self._progress("installing", 0.2)
-
+            
             target = os.path.abspath(self.args.target)
             target_dir = os.path.dirname(target)
-            target_name = os.path.basename(target)
-            if target_name.lower() == "autorewarder-portable.exe":
-                source = find_release_file(root, "AutoRewarder-Portable.exe")
-                if not source:
-                    raise ValueError("The portable package does not contain AutoRewarder-Portable.exe.")
-                self._progress("replacing", 0.55)
+            
+            # If the downloaded asset is an executable, use it directly.
+            if package.lower().endswith(".exe"):
+                source = package
+            else:
+                root = extract_release_package(package)
+                self._progress("installing", 0.2)
+                target_name = os.path.basename(target)
+                if target_name.lower() == "autorewarder-portable.exe":
+                    source = find_release_file(root, "AutoRewarder-Portable.exe")
+                    if not source:
+                        source = find_release_file(root, "AutoRewarder_v*Portable.exe")
+                    if not source:
+                        raise ValueError("The portable package does not contain AutoRewarder-Portable.exe.")
+                else:
+                    source = find_release_file(root, "AutoRewarder.exe")
+                    if not source:
+                        raise ValueError("The package does not contain AutoRewarder.exe.")
+
+            self._progress("replacing", 0.55)
+            if source.lower().endswith(".exe") and os.path.isfile(source):
                 shutil.copy2(source, target)
             else:
-                source = find_release_file(root, "AutoRewarder.exe")
-                if not source:
-                    raise ValueError("The package does not contain AutoRewarder.exe.")
-                self._progress("replacing", 0.55)
                 source_dir = os.path.dirname(source)
                 shutil.copytree(
                     source_dir,
@@ -128,6 +139,9 @@ class UpdaterAPI:
             self._progress("finished", 1.0)
             time.sleep(0.65)
             subprocess.Popen([target], cwd=target_dir, close_fds=True)
+            self.can_close = True
+            if self.icon:
+                self.icon.stop()
             self.window.destroy()
         except Exception as exc:
             self._progress("error", 0, str(exc))
@@ -139,11 +153,36 @@ class UpdaterAPI:
                 try:
                     if os.path.isdir(path):
                         shutil.rmtree(path, ignore_errors=True)
+                    elif os.path.isfile(path) and path != package: # prevent deleting if we used exe directly, or maybe we should delete temp exe
+                        os.remove(path)
                     elif os.path.isfile(path):
                         os.remove(path)
                 except OSError:
                     pass
 
+
+def _install_updater_tray(api):
+    try:
+        import pystray
+        from PIL import Image
+        
+        def on_exit(icon, item):
+            api.abort()
+
+        try:
+            with Image.open(os.path.join(ASSETS_DIR, "icon.ico")) as img:
+                image = img.copy()
+        except Exception:
+            image = Image.new("RGB", (64, 64), (0, 0, 0))
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Exit Updater", on_exit)
+        )
+        icon = pystray.Icon("AutoRewarderUpdater", image, "AutoRewarder Updater", menu)
+        api.icon = icon
+        icon.run_detached()
+    except Exception as e:
+        print(f"[WARNING] Updater tray disabled: {e}")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -169,6 +208,7 @@ def main():
         background_color="#0b0d12",
     )
     api.window = window
+    _install_updater_tray(api)
     window.events.closing += lambda *_args: not api.can_close
     webview.start()
 
