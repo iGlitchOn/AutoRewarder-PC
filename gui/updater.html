@@ -88,14 +88,14 @@
     <div class="track" id="track-container"><div id="bar"></div></div>
     <div class="loading-dots" id="dots-container" aria-hidden="true"><i></i><i></i><i></i></div>
     <p id="detail">The new version will open automatically.</p>
-    <button id="abort-btn" onclick="abortUpdate()">Abort / Cancel</button>
+    <button id="abort-btn" onclick="abortUpdate()">Abort</button>
   </main>
   <script>
     const COPY = {
-      en: { title: "Updating AutoRewarder", closing: "Closing AutoRewarder…", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Opening the new version…", detail: "The new version will open automatically.", error: "The update could not be installed.", abort: "Abort / Cancel" },
-      es: { title: "Actualizando AutoRewarder", closing: "Cerrando AutoRewarder…", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Abriendo la nueva versión…", detail: "La nueva versión se abrirá automáticamente.", error: "No se pudo instalar la actualización.", abort: "Abortar / Cancelar" },
-      pt: { title: "Atualizando o AutoRewarder", closing: "Fechando o AutoRewarder…", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Abrindo a nova versão…", detail: "A nova versão será aberta automaticamente.", error: "Não foi possível instalar a atualização.", abort: "Abortar / Cancelar" },
-      zh: { title: "正在更新 AutoRewarder", closing: "正在关闭 AutoRewarder…", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "正在打开新版本…", detail: "新版本会自动打开。", error: "无法安装更新。", abort: "中止 / 取消" }
+      en: { title: "Updating AutoRewarder", closing: "Closing AutoRewarder…", downloading: "Downloading…", installing: "Installing…", replacing: "Replacing the old version…", cleaning: "Cleaning up…", finished: "Opening the new version…", detail: "The new version will open automatically.", error: "The update could not be installed.", abort: "Abort" },
+      es: { title: "Actualizando AutoRewarder", closing: "Cerrando AutoRewarder…", downloading: "Descargando…", installing: "Instalando…", replacing: "Reemplazando la versión anterior…", cleaning: "Limpiando…", finished: "Abriendo la nueva versión…", detail: "La nueva versión se abrirá automáticamente.", error: "No se pudo instalar la actualización.", abort: "Abortar" },
+      pt: { title: "Atualizando o AutoRewarder", closing: "Fechando o AutoRewarder…", downloading: "Baixando…", installing: "Instalando…", replacing: "Substituindo a versão anterior…", cleaning: "Limpando…", finished: "Abrindo a nova versão…", detail: "A nova versão será aberta automaticamente.", error: "Não foi possível instalar a atualização.", abort: "Abortar" },
+      zh: { title: "正在更新 AutoRewarder", closing: "正在关闭 AutoRewarder…", downloading: "正在下载…", installing: "正在安装…", replacing: "正在替换旧版本…", cleaning: "正在清理…", finished: "正在打开新版本…", detail: "新版本会自动打开。", error: "无法安装更新。", abort: "中止" }
     };
     let lang = "en";
     function copy(key) { return (COPY[lang] || COPY.en)[key] || COPY.en[key]; }

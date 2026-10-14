@@ -56,9 +56,16 @@ class UpdaterAPI:
     def abort(self):
         self.can_close = True
         if self.icon:
-            self.icon.stop()
+            try:
+                self.icon.stop()
+            except Exception:
+                pass
         if self.window:
-            self.window.destroy()
+            try:
+                self.window.destroy()
+            except Exception:
+                pass
+        os._exit(0)
 
     def get_settings(self):
         return {"ui_locale": self.args.language or "en"}

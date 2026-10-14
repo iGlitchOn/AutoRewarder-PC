@@ -819,23 +819,35 @@ class AutoRewarderAPI:
         helper = os.path.join(os.path.dirname(sys.executable), "AutoRewarder-Updater.exe")
         if os.path.isfile(helper):
             language = self.ui_locale()
-            subprocess.Popen(
-                [
-                    helper,
-                    "--url",
-                    str(url or ""),
-                    "--asset",
-                    str(asset_name or ""),
-                    "--parent-pid",
-                    str(os.getpid()),
-                    "--language",
-                    language,
-                    "--target",
-                    sys.executable,
-                ],
-                cwd=os.path.dirname(sys.executable),
-                close_fds=True,
-            )
+            args = [
+                "--url", str(url or ""),
+                "--asset", str(asset_name or ""),
+                "--parent-pid", str(os.getpid()),
+                "--language", language,
+                "--target", sys.executable,
+            ]
+            target_dir = os.path.dirname(sys.executable)
+            needs_elevation = False
+            try:
+                test_file = os.path.join(target_dir, ".write_test")
+                with open(test_file, "w") as f:
+                    f.write("test")
+                os.remove(test_file)
+            except PermissionError:
+                needs_elevation = True
+            except Exception:
+                pass
+
+            if needs_elevation:
+                import ctypes
+                params = " ".join(f'"{a}"' for a in args)
+                ctypes.windll.shell32.ShellExecuteW(None, "runas", helper, params, target_dir, 1)
+            else:
+                subprocess.Popen(
+                    [helper] + args,
+                    cwd=target_dir,
+                    close_fds=True,
+                )
             threading.Thread(
                 target=self._close_for_external_update,
                 daemon=True,
