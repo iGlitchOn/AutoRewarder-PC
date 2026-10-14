@@ -381,10 +381,21 @@ def main():
     if not ran_any:
         console_log("No schedules matched today.")
 
+    try:
+        api.shutdown()
+    except Exception as e:
+        console_log(f"[WARNING] Shutdown error: {e}")
+
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         console_log("Interrupted by user; exiting.")
+    finally:
+        try:
+            from src.emulator.driver import DriverManager
+            DriverManager.kill_all_autorewarder_edge(wait=True)
+        except Exception:
+            pass
         sys.exit(0)
