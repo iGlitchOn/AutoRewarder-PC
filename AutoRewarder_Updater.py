@@ -211,7 +211,7 @@ def main():
         easy_drag=False,
         on_top=True,
         shadow=False,
-        transparent=True,
+        transparent=False,
         background_color="#0b0d12",
     )
     api.window = window
